@@ -17,6 +17,7 @@ import logging
 import tempfile
 import asyncio
 import os
+import hashlib
 from pathlib import Path
 
 from qtm_mcp.config import get_settings
@@ -45,12 +46,13 @@ async def trigger_processing_pipeline(
     try:
         validate_patient_inputs(patient_id, session_date)
         patient_base = await get_project_patient_dir()
-        patient_dir = safe_patient_path(patient_base, patient_id, session_date)
+        patient_dir = await safe_patient_path(patient_base, patient_id, session_date)
     except ValueError as e:
         raise ValueError(f"Input Validation Error: {e}")
 
+    hashed_id = hashlib.sha256(patient_id.encode()).hexdigest()[:12]
     logger.info(
-        f"Invoking trigger_processing_pipeline for Patient: {patient_id}, "
+        f"Invoking trigger_processing_pipeline for Patient: {hashed_id}, "
         f"Engine: {pipeline_type}"
     )
 
@@ -79,18 +81,24 @@ async def trigger_processing_pipeline(
             ) as config_file:
                 json.dump(config_data, config_file)
                 config_path = config_file.name.replace("\\", "/")
+            os.chmod(config_path, 0o600)
+
+            matlab_root = Path(settings.matlab_scripts_path).expanduser().resolve()
+            projects_root = Path(settings.projects_root).expanduser().resolve()
+            if not matlab_root.is_relative_to(projects_root):
+                raise PermissionError(f"MATLAB scripts path '{matlab_root}' escapes projects root '{projects_root}'")
 
             command = [
                 "matlab",
                 "-nosplash",
                 "-nodesktop",
-                "-batch",
-                f"addpath('{settings.matlab_scripts_path}'); "
-                f"run_clinical_analysis_from_config('{config_path}');",
+                "-r",
+                f"addpath('{matlab_root.as_posix()}'); "
+                f"run_clinical_analysis_from_config('{config_path}'); exit;",
             ]
         except OSError as e:
             logger.error(f"Failed to write pipeline config tempfile: {e}")
-            return f"Error: Could not create temporary configuration file: {e}"
+            raise RuntimeError(f"Could not create temporary configuration file: {e}")
 
     elif pipeline_type.lower() == "opensim":
         # SECURE PATTERN: Resolve the OpenSim XML path and verify it remains
@@ -98,7 +106,7 @@ async def trigger_processing_pipeline(
         opensim_root = Path(settings.opensim_config_root).expanduser().resolve()
         setup_xml = (opensim_root / f"Setup_IK_{patient_id}.xml").resolve()
         if not setup_xml.is_relative_to(opensim_root):
-            return "Error: OpenSim config path escapes the configured root directory."
+            raise PermissionError("OpenSim config path escapes the configured root directory.")
 
         command = [
             "opensim-cmd",
@@ -106,7 +114,7 @@ async def trigger_processing_pipeline(
             str(setup_xml).replace("\\", "/"),
         ]
     else:
-        return f"Error: Unknown pipeline type '{pipeline_type}'. Must be 'matlab' or 'opensim'."
+        raise ValueError(f"Unknown pipeline type '{pipeline_type}'. Must be 'matlab' or 'opensim'.")
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -151,12 +159,13 @@ async def fetch_clinical_metrics(patient_id: str, session_date: str) -> dict:
     try:
         validate_patient_inputs(patient_id, session_date)
         patient_base = await get_project_patient_dir()
-        patient_dir = safe_patient_path(patient_base, patient_id, session_date)
+        patient_dir = await safe_patient_path(patient_base, patient_id, session_date)
     except ValueError as e:
         raise ValueError(f"Input Validation Error: {e}")
 
+    hashed_id = hashlib.sha256(patient_id.encode()).hexdigest()[:12]
     logger.info(
-        f"Invoking fetch_clinical_metrics for Patient: {patient_id}, "
+        f"Invoking fetch_clinical_metrics for Patient: {hashed_id}, "
         f"Session: {session_date}"
     )
 
@@ -164,17 +173,20 @@ async def fetch_clinical_metrics(patient_id: str, session_date: str) -> dict:
     settings = get_settings()
 
     try:
-        metrics_file = confined_file(
+        metrics_file = await confined_file(
             Path(settings.projects_root),
             patient_dir / f"{patient_id}_clinical_report.json",
             {".json"},
         )
+    except PermissionError:
+        logger.critical(f"SECURITY: Path traversal attempt blocked for patient {hashed_id}")
+        raise
     except FileNotFoundError as e:
         if str(Path(settings.projects_root).expanduser()) in str(e):
             raise RuntimeError(f"Configuration error: QTM_PROJECTS_ROOT '{settings.projects_root}' does not exist on this machine.")
         raise FileNotFoundError(f"Clinical report not found for {patient_id}. Expected {patient_id}_clinical_report.json in {patient_dir.as_posix()}.")
-    except Exception as e:
-        raise FileNotFoundError(f"Clinical report not found or unconfined: {e}")
+    except ValueError as e:
+        raise FileNotFoundError(f"Clinical report not found: {e}")
 
     def _read_json(path):
         import os

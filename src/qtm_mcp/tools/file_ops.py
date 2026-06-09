@@ -15,11 +15,12 @@
 import json
 import logging
 import asyncio
+import hashlib
 
 import httpx
 
 from qtm_mcp.config import get_settings
-from qtm_mcp.utils import get_project_patient_dir, validate_patient_inputs, safe_patient_path
+from qtm_mcp.utils import get_project_patient_dir, validate_patient_inputs, safe_patient_path, get_shared_client
 
 logger = logging.getLogger("Universal_QTM_Server.file_ops")
 
@@ -31,12 +32,13 @@ async def load_patient_session(patient_id: str, session_date: str) -> dict:
     try:
         validate_patient_inputs(patient_id, session_date)
         patient_base = await get_project_patient_dir()
-        patient_dir = safe_patient_path(patient_base, patient_id, session_date)
+        patient_dir = await safe_patient_path(patient_base, patient_id, session_date)
     except ValueError as e:
         raise ValueError(f"Input Validation Error: {e}")
 
+    hashed_id = hashlib.sha256(patient_id.encode()).hexdigest()[:12]
     logger.info(
-        f"Invoking load_patient_session for Patient: {patient_id}, Date: {session_date}"
+        f"Invoking load_patient_session for Patient: {hashed_id}, Date: {session_date}"
     )
 
     patient_dir_str = str(patient_dir).replace("\\", "/")
@@ -47,9 +49,9 @@ async def load_patient_session(patient_id: str, session_date: str) -> dict:
     def _find_capture(directory):
         if not directory.exists():
             return None
-        for f in directory.iterdir():
-            if f.suffix.lower() in (".qtm", ".c3d"):
-                return str(f).replace("\\", "/")
+        matches = sorted(directory.glob("*.qtm")) + sorted(directory.glob("*.c3d"))
+        if matches:
+            return str(matches[0]).replace("\\", "/")
         return None
 
     try:
@@ -68,16 +70,16 @@ async def load_patient_session(patient_id: str, session_date: str) -> dict:
 
     # ── POST to QTM REST API via async httpx ─────────────────────────────────
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            endpoint = f"{settings.qtm_rest_url}/api/capture/open"
-            response = await client.post(endpoint, json=payload)
-            if response.status_code == 200:
-                return {"status": "Success", "loaded_file": capture_file}
-            else:
-                safe_body = response.text[:500] if response.text else "(empty body)"
-                raise RuntimeError(
-                    f"QTM REST API returned HTTP {response.status_code}. Body: {safe_body}"
-                )
+        client = get_shared_client()
+        endpoint = f"{settings.qtm_rest_url}/api/capture/open"
+        response = await client.post(endpoint, json=payload, timeout=5.0)
+        if response.status_code == 200:
+            return {"status": "Success", "loaded_file": capture_file}
+        else:
+            safe_body = response.text[:500] if response.text else "(empty body)"
+            raise RuntimeError(
+                f"QTM REST API returned HTTP {response.status_code}. Body: {safe_body}"
+            )
     except httpx.ConnectError:
         logger.warning("QTM REST API connection failed.")
         raise ConnectionError(f"QTM REST API offline at {settings.qtm_rest_url}")

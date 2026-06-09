@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     matlab_scripts_path: str = "~/QTM_Projects/My_Gait_Lab/Matlab_Scripts"
     opensim_config_root: str = "~/QTM_Projects/My_Gait_Lab/OpenSim"
 
+    # Allowlist for EHR endpoints
+    allowed_fhir_endpoints: list[str] = []
+
     # Enable reading from .env files
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -59,3 +62,8 @@ def get_settings() -> Settings:
     and guarantee a single shared instance across the application.
     """
     return Settings()
+
+def reload_settings() -> Settings:
+    """Force-reload settings from environment. Call after .env changes."""
+    get_settings.cache_clear()
+    return get_settings()

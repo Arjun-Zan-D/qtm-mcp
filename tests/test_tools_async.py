@@ -84,8 +84,8 @@ class TestInputValidation:
 
 class TestFetchQtmData:
     @pytest.mark.asyncio
-    async def test_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError):
+    async def test_raises_runtime_error(self):
+        with pytest.raises(RuntimeError):
             await fetch_qtm_data(["3d"], 2)
 
 
@@ -171,10 +171,10 @@ class TestLoadPatientSession:
         (patient_dir / "test.qtm").touch()
         mocker.patch("qtm_mcp.tools.file_ops.safe_patient_path", return_value=patient_dir)
         
-        mocker.patch(
-            "qtm_mcp.tools.file_ops.httpx.AsyncClient",
-            side_effect=httpx.ConnectError("Connection refused"),
-        )
+        from qtm_mcp.utils import set_shared_client
+        mock_client = mocker.AsyncMock()
+        mock_client.post.side_effect = httpx.ConnectError("Connection refused")
+        set_shared_client(mock_client)
         with pytest.raises(ConnectionError):
             await load_patient_session(VALID_PATIENT, VALID_DATE)
 

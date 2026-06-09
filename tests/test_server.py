@@ -48,9 +48,11 @@ async def test_file_ops_async_iterdir(mock_patient_dir, mocker):
     mocker.patch("qtm_mcp.tools.file_ops.get_project_patient_dir", return_value=str(mock_patient_dir.parent.parent))
     mocker.patch("qtm_mcp.tools.file_ops.safe_patient_path", return_value=mock_patient_dir)
     
-    # Mock httpx post to bypass actual networking during unit tests
-    mock_post = mocker.patch("httpx.AsyncClient.post")
-    mock_post.return_value.status_code = 200
+    # Inject mock shared client
+    from qtm_mcp.utils import set_shared_client
+    mock_client = mocker.AsyncMock()
+    mock_client.post.return_value.status_code = 200
+    set_shared_client(mock_client)
 
     result = await load_patient_session("PAT-TEST", "2026-06-09")
     

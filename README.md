@@ -23,7 +23,6 @@ qtm-mcp/
 ├── src/
 │   └── qtm_mcp/
 │       ├── __init__.py        # Package exports
-│       ├── base.py            # Shared FastMCP instantiation (prevents circular imports)
 │       ├── server.py          # Main CLI runner and tool registry
 │       ├── config.py          # Pydantic-settings config schema
 │       ├── utils.py           # Directory resolution utilities
@@ -126,9 +125,9 @@ async with stdio_client(server_params) as (read, write):
 
 If you want to add new tools to the biomechanical workflow:
 1. Create a Python module inside the `src/qtm_mcp/tools/` folder.
-2. Import the shared `mcp` instance: `from qtm_mcp.base import mcp`.
-3. Declare tools using `@mcp.tool()`.
-4. Import your new module inside `src/qtm_mcp/server.py` so the decorator registers on startup.
+2. Define your async tool functions and provide type hints.
+3. Import your new module inside `src/qtm_mcp/server.py`.
+4. Register the tool explicitly in `create_server()` using `server.tool()(with_timeout(X)(my_tool_function))`.
 
 ---
 

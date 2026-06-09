@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import logging
 from typing import Annotated, Literal
 from pydantic import Field
@@ -46,19 +45,14 @@ async def fetch_qtm_data(data_types: list[DataType], frames: FrameCount) -> dict
     if not data_types:
         raise ValueError("At least one data type is required")
         
+    if not (1 <= frames <= MAX_FRAMES):
+        raise ValueError(f"frames must be between 1 and {MAX_FRAMES}, got {frames}")
+
     if not QTM_RT_AVAILABLE:
-        logger.info("Generating synthetic QTM RT data as fallback")
-        import random
-        result = {}
-        if "3d" in data_types:
-            result["3d"] = [{"frame": i, "markers": [{"id": j, "x": random.uniform(-100, 100), "y": random.uniform(-100, 100), "z": random.uniform(0, 200)} for j in range(5)]} for i in range(frames)]
-        if "6d" in data_types:
-            result["6d"] = [{"frame": i, "bodies": [{"id": j, "x": random.uniform(-100, 100), "y": random.uniform(-100, 100), "z": random.uniform(0, 200), "roll": random.uniform(-180, 180), "pitch": random.uniform(-90, 90), "yaw": random.uniform(-180, 180)} for j in range(2)]} for i in range(frames)]
-        if "analog" in data_types:
-            result["analog"] = [{"frame": i, "channels": [{"id": j, "value": random.uniform(-5, 5)} for j in range(4)]} for i in range(frames)]
-        if "force" in data_types:
-            result["force"] = [{"frame": i, "plates": [{"id": j, "fx": random.uniform(-10, 10), "fy": random.uniform(-10, 10), "fz": random.uniform(500, 1000)} for j in range(2)]} for i in range(frames)]
-        return {"status": "Success", "is_simulated": True, "data": result}
+        raise RuntimeError(
+            "The 'qtm-rt' SDK is not installed. Real-time data acquisition is unavailable. "
+            "Install with: pip install qtm-mcp[realtime]"
+        )
         
     raise NotImplementedError(
         "Live qtm_rt streaming is not implemented"

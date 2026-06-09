@@ -14,7 +14,7 @@
 
 """Smoke test for Phase 1 & 2 remediation validation functions."""
 import sys
-sys.path.insert(0, ".")
+import asyncio
 
 from qtm_mcp.utils import validate_patient_inputs, safe_patient_path
 
@@ -45,7 +45,7 @@ for bad_date in ["2026-01-01; DROP TABLE", "../../../", "2026-1-1", ""]:
 try:
     # Even if someone passes validated-looking but double-dotted segments
     # manually (bypassing validate_patient_inputs), the path jail catches it
-    safe_patient_path("C:/QTM_Projects/Test/Patient_Data", "legit", "2026-06-09")
+    asyncio.run(safe_patient_path("C:/QTM_Projects/Test/Patient_Data", "legit", "2026-06-09"))
     print("[PASS] safe_patient_path accepted valid path.")
 except ValueError:
     print("[FAIL] safe_patient_path rejected valid path.")

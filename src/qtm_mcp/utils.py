@@ -14,6 +14,7 @@
 
 import os
 import re
+import time
 import logging
 import asyncio
 from pathlib import Path
@@ -29,9 +30,65 @@ _PATIENT_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 _SESSION_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-_shared_client: httpx.AsyncClient | None = None
+class CircuitBreakerClient:
+    def __init__(self, client: httpx.AsyncClient, max_failures: int = 3, reset_timeout: float = 60.0):
+        self._client = client
+        self.max_failures = max_failures
+        self.reset_timeout = reset_timeout
+        self.failures = 0
+        self.last_failure_time = 0.0
+        self.state = "CLOSED"
 
-def get_shared_client() -> httpx.AsyncClient:
+    def _allow_request(self) -> bool:
+        if self.state == "CLOSED":
+            return True
+        if self.state == "OPEN":
+            if time.time() - self.last_failure_time > self.reset_timeout:
+                self.state = "HALF_OPEN"
+                logger.info("Circuit Breaker HALF_OPEN. Testing connection.")
+                return True
+            return False
+        return True
+
+    def _record_success(self):
+        if self.state != "CLOSED":
+            logger.info("Circuit Breaker CLOSED. Service recovered.")
+        self.failures = 0
+        self.state = "CLOSED"
+
+    def _record_failure(self):
+        self.failures += 1
+        self.last_failure_time = time.time()
+        if self.failures >= self.max_failures:
+            if self.state != "OPEN":
+                logger.warning(f"Circuit Breaker OPEN. Too many failures ({self.failures}).")
+            self.state = "OPEN"
+
+    async def get(self, *args, **kwargs):
+        if not self._allow_request():
+            raise RuntimeError("Circuit Breaker OPEN: QTM REST API is temporarily unavailable.")
+        try:
+            response = await self._client.get(*args, **kwargs)
+            self._record_success()
+            return response
+        except httpx.RequestError as e:
+            self._record_failure()
+            raise e
+
+    async def post(self, *args, **kwargs):
+        if not self._allow_request():
+            raise RuntimeError("Circuit Breaker OPEN: QTM REST API is temporarily unavailable.")
+        try:
+            response = await self._client.post(*args, **kwargs)
+            self._record_success()
+            return response
+        except httpx.RequestError as e:
+            self._record_failure()
+            raise e
+
+_shared_client: CircuitBreakerClient | None = None
+
+def get_shared_client() -> CircuitBreakerClient:
     global _shared_client
     if _shared_client is None:
         raise RuntimeError("Shared HTTP client is not initialized")
@@ -39,7 +96,10 @@ def get_shared_client() -> httpx.AsyncClient:
 
 def set_shared_client(client: httpx.AsyncClient | None):
     global _shared_client
-    _shared_client = client
+    if client is None:
+        _shared_client = None
+    else:
+        _shared_client = CircuitBreakerClient(client)
 
 async def confined_file(root: Path, candidate: Path, suffixes: set[str]) -> Path:
     """Safely resolves a file path and ensures it remains within the trusted root."""

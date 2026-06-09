@@ -28,10 +28,15 @@ qtm-mcp/
 │       ├── utils.py           # Directory resolution utilities
 │       └── tools/             # Split tool logic
 │           ├── __init__.py
-│           ├── file_ops.py    # Session loading tools
-│           ├── realtime.py    # qtm-rt real-time streams
-│           ├── video.py       # OpenCV keyframe extraction & stick-figure drawing
-│           └── pipeline.py    # Subprocess execution & clinical reports
+│           ├── file_ops.py        # Session loading tools
+│           ├── realtime.py        # qtm-rt real-time streams
+│           ├── video.py           # OpenCV keyframe extraction
+│           ├── pipeline.py        # Subprocess execution & clinical reports
+│           ├── health.py          # Hardware status and calibration
+│           ├── telemetry.py       # Analog and EMG signal processing
+│           ├── biomechanics.py    # Kinematics and anthropometrics
+│           ├── analytics.py       # ML/AI data segmentation and normative stats
+│           └── clinical_output.py # EHR pushes, PDFs, and clinical notes
 ```
 
 ---

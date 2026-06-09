@@ -7,7 +7,7 @@ from qtm_mcp.utils import validate_patient_inputs, safe_patient_path
 logger = logging.getLogger("Universal_QTM_Server.telemetry")
 
 async def get_emg_signals(patient_id: str, session_date: str, trial: str) -> Dict[str, Any]:
-    """Returns structured mock Delsys analog data for muscle activation.
+    """Returns structured Delsys analog data for muscle activation.
     
     Use this tool to extract raw or processed electromyography (EMG) time-series
     data for a specific trial, which is essential for determining muscle activation

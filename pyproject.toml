@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qtm-mcp"
+version = "0.1.0"
+description = "A Universal Model Context Protocol (MCP) server for Qualisys Track Manager (QTM)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Xavier Gait Lab Contributors" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "mcp>=1.27,<2",
+    "httpx>=0.28,<1",
+    "pydantic-settings>=2.1.0",
+]
+
+[project.optional-dependencies]
+vision   = ["opencv-python>=4.9.0", "numpy>=1.24.0"]
+realtime = ["qtm-rt>=3.0.2,<4"]
+all      = ["qtm-mcp[vision,realtime]"]
+dev      = ["pytest>=8.0", "pytest-asyncio>=0.23", "pytest-mock>=3.14", "ruff", "pyright", "bandit", "pip-audit"]
+
+[project.scripts]
+qtm-mcp = "qtm_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qtm_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

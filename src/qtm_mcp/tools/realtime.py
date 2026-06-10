@@ -40,6 +40,10 @@ async def fetch_qtm_data(data_types: list[DataType], frames: FrameCount) -> dict
         data_types: List of desired components to pull. Choose from: ["3d", "6d", "analog", "force"].
         frames: Number of frames of data to retrieve (1-120).
     """
+    import asyncio
+    from qtm_mcp.config import get_settings
+    settings = get_settings()
+
     logger.info(f"Invoking fetch_qtm_data for data_types: {data_types}, frames: {frames}")
 
     if not data_types:
@@ -54,7 +58,102 @@ async def fetch_qtm_data(data_types: list[DataType], frames: FrameCount) -> dict
             "Install with: pip install qtm-mcp[realtime]"
         )
         
-    raise NotImplementedError(
-        "Live qtm_rt streaming is not implemented"
-    )
+    # Map data types to qtm_rt stream components
+    components = []
+    for dt in data_types:
+        if dt in ["3d", "6d", "analog", "force"]:
+            components.append(dt)
+        else:
+            raise ValueError(f"Unknown data type: {dt}")
+
+    # Establish connection with QTM RT server
+    import qtm_rt
+    connection = await qtm_rt.connect(settings.qtm_rt_host, port=settings.qtm_rt_port)
+    if connection is None:
+        raise ConnectionError(
+            f"Failed to connect to QTM RT server at {settings.qtm_rt_host}:{settings.qtm_rt_port}"
+        )
+
+    frames_data = []
+    done_event = asyncio.Event()
+
+    def on_packet(packet):
+        frame_dict = {"frame_number": packet.framenumber}
+        
+        if "3d" in components:
+            try:
+                # get_3d_markers returns (header, markers)
+                _, markers = packet.get_3d_markers()
+                if markers:
+                    frame_dict["3d"] = [{"x": m.x, "y": m.y, "z": m.z} for m in markers]
+                else:
+                    frame_dict["3d"] = []
+            except Exception as e:
+                logger.error(f"Error parsing 3D markers: {e}")
+                frame_dict["3d"] = []
+
+        if "6d" in components:
+            try:
+                # get_6d returns (header, bodies)
+                _, bodies = packet.get_6d()
+                if bodies:
+                    formatted_bodies = []
+                    for b in bodies:
+                        name, pos, rot = b
+                        formatted_bodies.append({
+                            "name": name,
+                            "position": list(pos) if pos is not None else [],
+                            "rotation": [list(row) for row in rot] if rot is not None else []
+                        })
+                    frame_dict["6d"] = formatted_bodies
+                else:
+                    frame_dict["6d"] = []
+            except Exception as e:
+                logger.error(f"Error parsing 6D bodies: {e}")
+                frame_dict["6d"] = []
+
+        if "analog" in components:
+            try:
+                # get_analog returns (header, analog_data)
+                _, analog = packet.get_analog()
+                frame_dict["analog"] = analog if analog is not None else []
+            except Exception as e:
+                logger.error(f"Error parsing analog data: {e}")
+                frame_dict["analog"] = []
+
+        if "force" in components:
+            try:
+                # get_force returns (header, force_data)
+                _, force = packet.get_force()
+                frame_dict["force"] = force if force is not None else []
+            except Exception as e:
+                logger.error(f"Error parsing force data: {e}")
+                frame_dict["force"] = []
+
+        frames_data.append(frame_dict)
+        if len(frames_data) >= frames:
+            done_event.set()
+
+    try:
+        await connection.stream_frames(components=components, on_packet=on_packet)
+        try:
+            # Wait for frames to accumulate with a 10s timeout
+            await asyncio.wait_for(done_event.wait(), timeout=10.0)
+        except asyncio.TimeoutError:
+            logger.warning("Timeout occurred while waiting for QTM frames. Returning partial data.")
+    finally:
+        try:
+            await connection.stream_frames_stop()
+        except Exception as e:
+            logger.error(f"Error stopping stream: {e}")
+        try:
+            await connection.disconnect()
+        except Exception as e:
+            logger.error(f"Error disconnecting: {e}")
+
+    return {
+        "status": "success",
+        "frames_collected": len(frames_data),
+        "data": frames_data
+    }
 

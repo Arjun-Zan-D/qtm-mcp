@@ -56,4 +56,66 @@ async def get_calibration_status() -> Dict[str, Any]:
     """
     settings = get_settings()
     
-    raise NotImplementedError("Tool not yet implemented — requires actual data source")
+    try:
+        import qtm_rt
+    except ImportError:
+        raise RuntimeError(
+            "The 'qtm-rt' SDK is not installed. Calibration query is unavailable."
+        )
+
+    connection = await qtm_rt.connect(settings.qtm_rt_host, port=settings.qtm_rt_port)
+    if connection is None:
+        raise ConnectionError(
+            f"Failed to connect to QTM RT server at {settings.qtm_rt_host}:{settings.qtm_rt_port}"
+        )
+
+    try:
+        xml_str = await connection.get_parameters(parameters=["calibration"])
+        
+        # Parse XML
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_str)
+        
+        cal_elem = root.find('.//Calibration')
+        if cal_elem is None:
+            return {
+                "status": "unknown",
+                "message": "Calibration element not found in QTM parameters.",
+                "raw_xml": xml_str
+            }
+            
+        date_str = cal_elem.findtext('Date', default='Unknown')
+        
+        avg_res_str = cal_elem.findtext('Average_Residual', default='0.0')
+        try:
+            avg_res = float(avg_res_str)
+        except ValueError:
+            avg_res = 0.0
+            
+        cams_str = cal_elem.findtext('Cameras', default='0')
+        try:
+            cams = int(cams_str)
+        except ValueError:
+            cams = 0
+            
+        # Determine pass status based on a standard 1.0 mm residual threshold
+        is_calibrated = avg_res > 0.0 and avg_res < 1.0
+        
+        return {
+            "status": "success",
+            "is_calibrated": is_calibrated,
+            "average_residual_mm": avg_res,
+            "camera_count": cams,
+            "calibration_date": date_str
+        }
+    except Exception as e:
+        logger.error(f"Error querying calibration status: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+    finally:
+        try:
+            await connection.disconnect()
+        except Exception as e:
+            logger.error(f"Error disconnecting: {e}")

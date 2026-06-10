@@ -85,7 +85,7 @@ class TestInputValidation:
 class TestFetchQtmData:
     @pytest.mark.asyncio
     async def test_raises_runtime_error(self):
-        with pytest.raises(RuntimeError):
+        with pytest.raises((RuntimeError, ConnectionError)):
             await fetch_qtm_data(["3d"], 2)
 
 

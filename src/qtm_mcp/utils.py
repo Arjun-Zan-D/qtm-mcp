@@ -193,7 +193,7 @@ async def get_project_patient_dir() -> str:
         response = await client.get(endpoint, timeout=2.0)
         if response.status_code == 200:
             project_info = response.json()
-            project_path = project_info.get("path")
+            project_path = project_info.get("projectPath") or project_info.get("path")
             if project_path:
                 return os.path.join(project_path, "Patient_Data").replace("\\", "/")
             project_name = project_info.get("name")
@@ -204,5 +204,8 @@ async def get_project_patient_dir() -> str:
     except Exception as e:
         logger.error(f"Error querying active project: {e}")
 
-    fallback_path = Path(settings.projects_root).expanduser() / current_project / "Patient_Data"
+    if settings.qtm_project_dir:
+        fallback_path = Path(settings.qtm_project_dir).expanduser() / "Patient_Data"
+    else:
+        fallback_path = Path(settings.projects_root).expanduser() / current_project / "Patient_Data"
     return str(fallback_path).replace("\\", "/")

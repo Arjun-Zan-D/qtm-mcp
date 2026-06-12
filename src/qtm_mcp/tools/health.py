@@ -1,9 +1,11 @@
 import logging
 import hashlib
+import asyncio
+from pathlib import Path
 from typing import Dict, Any, List
 
 from qtm_mcp.config import get_settings
-from qtm_mcp.utils import validate_patient_id, validate_patient_inputs, safe_patient_path
+from qtm_mcp.utils import validate_patient_id, validate_patient_inputs, safe_patient_path, get_project_patient_dir, get_shared_client
 
 logger = logging.getLogger("Universal_QTM_Server.health")
 
@@ -15,7 +17,39 @@ async def health_check() -> Dict[str, Any]:
     and accessible before running complex pipelines.
     """
     settings = get_settings()
-    raise NotImplementedError("Tool not yet implemented — requires actual data source")
+    
+    # Ping REST API
+    rest_status = "error"
+    try:
+        client = get_shared_client()
+        resp = await client.get(f"{settings.qtm_rest_url}/api/project", timeout=2.0)
+        if resp.status_code == 200:
+            rest_status = "ok"
+    except Exception:
+        pass
+        
+    # Probe RT socket
+    rt_status = "error"
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(settings.qtm_rt_host, settings.qtm_rt_port), 
+            timeout=2.0
+        )
+        writer.close()
+        await writer.wait_closed()
+        rt_status = "ok"
+    except Exception:
+        pass
+        
+    # Check projects_root
+    projects_dir = Path(settings.projects_root).expanduser()
+    projects_root_status = "ok" if projects_dir.exists() and projects_dir.is_dir() else "missing"
+    
+    return {
+        "rest_api": rest_status,
+        "rt_port": rt_status,
+        "projects_root": projects_root_status
+    }
 
 async def list_sessions(patient_id: str) -> List[str]:
     """Returns a list of available session dates for a given patient.
@@ -33,7 +67,15 @@ async def list_sessions(patient_id: str) -> List[str]:
         logger.error(f"Validation failed for patient {hashed_id}: {e}")
         raise
 
-    raise NotImplementedError("Tool not yet implemented — requires actual data source")
+    base_dir = await get_project_patient_dir()
+    patient_dir = Path(base_dir) / patient_id
+    if not patient_dir.exists():
+        return []
+        
+    import re
+    date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    sessions = [d.name for d in patient_dir.iterdir() if d.is_dir() and date_re.match(d.name)]
+    return sorted(sessions)
 
 async def start_stop_capture(trial_name: str, action: str) -> Dict[str, str]:
     """Uses QTM REST API to trigger/stop cameras.
@@ -46,7 +88,16 @@ async def start_stop_capture(trial_name: str, action: str) -> Dict[str, str]:
     if action not in ["start", "stop"]:
         raise ValueError("Action must be 'start' or 'stop'.")
         
-    raise NotImplementedError("Tool not yet implemented — requires actual data source")
+    try:
+        client = get_shared_client()
+        endpoint = f"{settings.qtm_rest_url}/api/capture/{action}"
+        payload = {"name": trial_name} if action == "start" else {}
+        resp = await client.post(endpoint, json=payload, timeout=5.0)
+        resp.raise_for_status()
+        return {"status": "success", "action": action, "trial": trial_name}
+    except Exception as e:
+        logger.error(f"Capture {action} failed: {e}")
+        return {"status": "error", "message": str(e)}
 
 async def get_calibration_status() -> Dict[str, Any]:
     """Queries QTM for the latest wand calibration error metrics.

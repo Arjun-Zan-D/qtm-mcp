@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     """Configuration settings for the QTM MCP server, loaded dynamically from environment variables."""
 
     # QTM REST API configuration
-    qtm_rest_port: int = 7979
+    qtm_rest_port: int = 22222
     qtm_rest_host: str = "localhost"
 
     # QTM RT (Real-Time) protocol configuration
@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # Path configuration for patient biomechanics trials
     # Override these via environment variables or a .env file for your lab.
+    qtm_project_dir: str | None = None
     projects_root: str = "~/QTM_Projects"
     default_project: str = "My_Gait_Lab"
 

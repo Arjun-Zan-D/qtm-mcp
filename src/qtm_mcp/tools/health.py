@@ -95,9 +95,23 @@ async def start_stop_capture(trial_name: str, action: str) -> Dict[str, str]:
         resp = await client.post(endpoint, json=payload, timeout=5.0)
         resp.raise_for_status()
         return {"status": "success", "action": action, "trial": trial_name}
+    except RuntimeError as e:
+        # Circuit breaker or infrastructure error
+        error_msg = str(e)
+        if "Circuit Breaker OPEN" in error_msg:
+            logger.warning("Capture %s blocked by circuit breaker.", action)
+            return {
+                "status": "error",
+                "code": "CIRCUIT_BREAKER_OPEN",
+                "action": action,
+                "trial": trial_name,
+                "message": error_msg,
+            }
+        logger.error("Capture %s runtime error: %s", action, e)
+        return {"status": "error", "code": "RUNTIME_ERROR", "action": action, "message": error_msg}
     except Exception as e:
-        logger.error(f"Capture {action} failed: {e}")
-        return {"status": "error", "message": str(e)}
+        logger.error("Capture %s failed: %s", action, e)
+        return {"status": "error", "code": "UNKNOWN_ERROR", "action": action, "message": str(e)}
 
 async def get_calibration_status() -> Dict[str, Any]:
     """Queries QTM for the latest wand calibration error metrics.

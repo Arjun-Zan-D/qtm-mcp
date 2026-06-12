@@ -84,9 +84,18 @@ class TestInputValidation:
 
 class TestFetchQtmData:
     @pytest.mark.asyncio
-    async def test_raises_runtime_error(self):
-        with pytest.raises((RuntimeError, ConnectionError)):
-            await fetch_qtm_data(["3d"], 2)
+    async def test_returns_error_or_raises(self):
+        # With the graceful-offline fix, fetch_qtm_data may either:
+        # 1. Raise RuntimeError if qtm-rt SDK is not installed
+        # 2. Return a structured error dict if connection fails
+        try:
+            result = await fetch_qtm_data(["3d"], 2)
+            # If it didn't raise, it should be a structured error
+            assert result["status"] == "error"
+            assert result["frames_collected"] == 0
+        except RuntimeError:
+            # Expected when qtm-rt is not installed
+            pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────

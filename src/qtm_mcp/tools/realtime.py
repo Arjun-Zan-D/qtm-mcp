@@ -15,6 +15,7 @@
 import logging
 from typing import Annotated, Literal
 from pydantic import Field
+
 logger = logging.getLogger("Universal_QTM_Server.realtime")
 
 try:
@@ -26,6 +27,9 @@ except ImportError:
     logger.warning("The 'qtm-rt' SDK is not installed.")
 
 MAX_FRAMES = 120
+# Timeout for waiting for QTM RT frames (seconds).  Configurable via
+# QTM_RT_STREAM_TIMEOUT env var through pydantic-settings; defaults to 5s.
+DEFAULT_STREAM_TIMEOUT = 5.0
 DataType = Literal["3d", "6d", "analog", "force"]
 FrameCount = Annotated[int, Field(ge=1, le=MAX_FRAMES)]
 
@@ -68,11 +72,28 @@ async def fetch_qtm_data(data_types: list[DataType], frames: FrameCount) -> dict
 
     # Establish connection with QTM RT server
     import qtm_rt
-    connection = await qtm_rt.connect(settings.qtm_rt_host, port=settings.qtm_rt_port)
-    if connection is None:
-        raise ConnectionError(
-            f"Failed to connect to QTM RT server at {settings.qtm_rt_host}:{settings.qtm_rt_port}"
+    try:
+        connection = await asyncio.wait_for(
+            qtm_rt.connect(settings.qtm_rt_host, port=settings.qtm_rt_port),
+            timeout=DEFAULT_STREAM_TIMEOUT,
         )
+    except (asyncio.TimeoutError, OSError, Exception) as exc:
+        logger.error("QTM RT connection failed: %s", exc)
+        return {
+            "status": "error",
+            "code": "CONNECTION_FAILED",
+            "message": f"Could not connect to QTM RT at {settings.qtm_rt_host}:{settings.qtm_rt_port}: {exc}",
+            "frames_collected": 0,
+            "data": [],
+        }
+    if connection is None:
+        return {
+            "status": "error",
+            "code": "CONNECTION_FAILED",
+            "message": f"QTM RT returned None for {settings.qtm_rt_host}:{settings.qtm_rt_port}",
+            "frames_collected": 0,
+            "data": [],
+        }
 
     frames_data = []
     done_event = asyncio.Event()
@@ -137,10 +158,11 @@ async def fetch_qtm_data(data_types: list[DataType], frames: FrameCount) -> dict
     try:
         await connection.stream_frames(components=components, on_packet=on_packet)
         try:
-            # Wait for frames to accumulate with a 10s timeout
-            await asyncio.wait_for(done_event.wait(), timeout=10.0)
+            # Wait for frames to accumulate with a configurable timeout
+            stream_timeout = getattr(settings, "qtm_rt_stream_timeout", DEFAULT_STREAM_TIMEOUT)
+            await asyncio.wait_for(done_event.wait(), timeout=stream_timeout)
         except asyncio.TimeoutError:
-            logger.warning("Timeout occurred while waiting for QTM frames. Returning partial data.")
+            logger.warning("Timeout after %.1fs waiting for QTM frames. Returning partial data.", stream_timeout)
     finally:
         try:
             await connection.stream_frames_stop()

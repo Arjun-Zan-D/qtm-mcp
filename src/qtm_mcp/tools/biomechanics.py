@@ -10,7 +10,7 @@ from qtm_mcp.utils import validate_patient_id, validate_patient_inputs, safe_pat
 
 logger = logging.getLogger("Universal_QTM_Server.biomechanics")
 
-async def get_patient_anthropometrics(patient_id: str) -> Dict[str, Any]:
+async def get_patient_anthropometrics(patient_id: str) -> dict:
     """Fetches leg length, mass, and joint widths.
     
     Use this tool to retrieve the static physical measurements required
@@ -37,7 +37,7 @@ async def get_patient_anthropometrics(patient_id: str) -> Dict[str, Any]:
         logger.error(f"Failed to load anthropometrics for {patient_id}: {e}")
         raise RuntimeError(f"Could not load anthropometrics: {e}")
 
-async def compute_joint_angles(patient_id: str, session_date: str, joint: str) -> Dict[str, Any]:
+async def compute_joint_angles(patient_id: str, session_date: str, joint: str) -> dict:
     """Returns time-series Euler angles (flexion/extension, abduction/adduction) for a specified joint.
     
     Use this tool to get the calculated 3D kinematic curves for clinical review.
@@ -71,7 +71,7 @@ async def compute_joint_angles(patient_id: str, session_date: str, joint: str) -
         logger.error(f"Failed to load joint angles for {hashed_id}/{session_date}/{joint}: {e}")
         raise RuntimeError(f"Could not load joint angles: {e}")
 
-async def compute_cop_trajectory(patient_id: str, session_date: str) -> Dict[str, Any]:
+async def compute_cop_trajectory(patient_id: str, session_date: str) -> dict:
     """Returns the unified Centre of Pressure path across all force plates.
     
     Use this tool to evaluate balance, weight transfer symmetry, and foot strike

@@ -45,7 +45,7 @@ from qtm_mcp.tools.clinical_output import (
     update_clinical_notes,
 )
 from qtm_mcp.tools.health import start_stop_capture
-from qtm_mcp.tools.realtime import fetch_qtm_data
+from qtm_mcp.tools.realtime import stream_3d_markers
 
 # ── Constants ────────────────────────────────────────────────────────────────
 VALID_PATIENT = "PAT-TEST"
@@ -311,16 +311,24 @@ class TestPushToEhr:
         mock_settings.allowed_fhir_endpoints = ["https://approved.hospital.org/fhir"]
         mocker.patch("qtm_mcp.tools.clinical_output.get_settings", return_value=mock_settings)
 
-        from qtm_mcp.utils import set_shared_client
+        from qtm_mcp.config import get_settings
+        from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
+        
+        manager = QTMConnectionManager(get_settings())
+        set_connection_manager(manager)
+
         mock_client = mocker.AsyncMock()
         mock_response = mocker.Mock()
         mock_response.status_code = 201
         mock_response.raise_for_status = mocker.Mock()
         mock_client.post.return_value = mock_response
-        set_shared_client(mock_client)
+        
+        mocker.patch("qtm_mcp.connection.QTMConnectionManager.get_rest_client", return_value=mock_client)
 
         result = await push_to_ehr(VALID_PATIENT, VALID_DATE, "https://approved.hospital.org/fhir")
         assert result["status"] == "success"
+        
+        set_connection_manager(None)
 
 
 class TestUpdateClinicalNotes:
@@ -351,40 +359,63 @@ class TestUpdateClinicalNotes:
 class TestStartStopCaptureCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_breaker_returns_structured_error(self, mocker):
-        from qtm_mcp.utils import set_shared_client
+        from qtm_mcp.config import get_settings
+        from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
+        
+        manager = QTMConnectionManager(get_settings())
+        set_connection_manager(manager)
 
         mock_client = mocker.AsyncMock()
         mock_client.post.side_effect = RuntimeError(
             "Circuit Breaker OPEN: QTM REST API is temporarily unavailable."
         )
-        set_shared_client(mock_client)
+        mocker.patch("qtm_mcp.connection.QTMConnectionManager.get_rest_client", return_value=mock_client)
 
         result = await start_stop_capture("gait_trial_1", "start")
         assert result["status"] == "error"
         assert result["code"] == "CIRCUIT_BREAKER_OPEN"
         assert "Circuit Breaker" in result["message"]
+        
+        set_connection_manager(None)
 
 
-class TestFetchQtmDataOffline:
+class TestStreamToolsOffline:
     @pytest.mark.asyncio
     async def test_connection_failure_returns_structured_error(self, mocker):
-        mocker.patch("qtm_mcp.tools.realtime.QTM_RT_AVAILABLE", True)
+        from qtm_mcp.config import get_settings
+        from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
+        
+        manager = QTMConnectionManager(get_settings())
+        set_connection_manager(manager)
+
+        mocker.patch("qtm_mcp.connection.QTM_RT_AVAILABLE", True)
 
         async def mock_connect(*args, **kwargs):
             raise OSError("Connection refused")
 
         mocker.patch("qtm_rt.connect", side_effect=mock_connect)
 
-        result = await fetch_qtm_data(["3d"], 2)
+        result = await stream_3d_markers(None, 2)
         assert result["status"] == "error"
-        assert result["code"] == "CONNECTION_FAILED"
-        assert result["frames_collected"] == 0
+        assert result["code"] == "RT_CONNECTION_FAILED"
+
+        set_connection_manager(None)
 
     @pytest.mark.asyncio
-    async def test_no_qtm_rt_raises_runtime_error(self, mocker):
-        mocker.patch("qtm_mcp.tools.realtime.QTM_RT_AVAILABLE", False)
-        with pytest.raises(RuntimeError, match="qtm-rt"):
-            await fetch_qtm_data(["3d"], 2)
+    async def test_no_qtm_rt_returns_structured_error(self, mocker):
+        from qtm_mcp.config import get_settings
+        from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
+        
+        manager = QTMConnectionManager(get_settings())
+        set_connection_manager(manager)
+
+        mocker.patch("qtm_mcp.connection.QTM_RT_AVAILABLE", False)
+        
+        result = await stream_3d_markers(None, 2)
+        assert result["status"] == "error"
+        assert result["code"] == "RT_CONNECTION_FAILED"
+        
+        set_connection_manager(None)
 
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -86,20 +86,21 @@ class CircuitBreakerClient:
             self._record_failure()
             raise e
 
-_shared_client: CircuitBreakerClient | None = None
+_shared_client = None  # Deprecated local reference, kept for backward compatibility if needed
 
 def get_shared_client() -> CircuitBreakerClient:
-    global _shared_client
-    if _shared_client is None:
-        raise RuntimeError("Shared HTTP client is not initialized")
-    return _shared_client
+    """Returns the General REST client."""
+    from qtm_mcp.connection import get_connection_manager
+    return get_connection_manager().get_rest_client()
+
+def get_scripting_client() -> CircuitBreakerClient:
+    """Returns the Scripting API REST client."""
+    from qtm_mcp.connection import get_connection_manager
+    return get_connection_manager().get_scripting_client()
 
 def set_shared_client(client: httpx.AsyncClient | None):
-    global _shared_client
-    if client is None:
-        _shared_client = None
-    else:
-        _shared_client = CircuitBreakerClient(client)
+    # Deprecated, handled by QTMConnectionManager now
+    pass
 
 async def confined_file(root: Path, candidate: Path, suffixes: set[str]) -> Path:
     """Safely resolves a file path and ensures it remains within the trusted root."""
@@ -177,16 +178,37 @@ async def safe_patient_path(base_dir: str, patient_id: str, session_date: str) -
     return target
 
 
+async def get_active_project_directory() -> str | None:
+    """Queries the Scripting API for the live project directory."""
+    try:
+        client = get_scripting_client()
+        resp = await client.post(
+            "/api/scripting/qtm/settings/directory/get_project_directory",
+            json=[],
+            timeout=5.0,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        logger.debug(f"Scripting API get_project_directory failed: {e}")
+    return None
+
 async def get_project_patient_dir() -> str:
-    """Dynamically resolves the patient directory by querying QTM's active project REST endpoint
-
-    or falling back to local configurations if QTM is offline.
-
-    Returns:
-        The resolved patient data directory as a forward-slash-normalized string.
+    """Dynamically resolves the patient directory using a 3-tier strategy:
+    
+    Tier 1: Scripting API (Port 7979)
+    Tier 2: General REST API (Port 22222)
+    Tier 3: Local environment configuration fallback
     """
     settings = get_settings()
     current_project = settings.default_project
+
+    # Tier 1: Scripting API
+    scripting_path = await get_active_project_directory()
+    if scripting_path:
+        return os.path.join(scripting_path, "Patient_Data").replace("\\", "/")
+
+    # Tier 2: General REST API
     try:
         client = get_shared_client()
         endpoint = f"{settings.qtm_rest_url}/api/project"
@@ -200,10 +222,12 @@ async def get_project_patient_dir() -> str:
             if project_name:
                 current_project = project_name
     except httpx.RequestError as e:
-        logger.debug(f"QTM REST API request failed ({type(e).__name__}). Using local cached project config.")
+        logger.debug(f"QTM REST API request failed ({type(e).__name__}). Falling back to local config.")
     except Exception as e:
         logger.error(f"Error querying active project: {e}")
 
+    # Tier 3: Local Configuration Fallback
+    logger.warning("Dynamic project resolution failed. Using local configuration fallback.")
     if settings.qtm_project_dir:
         fallback_path = Path(settings.qtm_project_dir).expanduser() / "Patient_Data"
     else:

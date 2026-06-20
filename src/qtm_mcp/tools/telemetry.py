@@ -10,7 +10,7 @@ from qtm_mcp.utils import validate_patient_inputs, safe_patient_path, get_projec
 
 logger = logging.getLogger("Universal_QTM_Server.telemetry")
 
-async def get_emg_signals(patient_id: str, session_date: str, trial: str) -> Dict[str, Any]:
+async def get_emg_signals(patient_id: str, session_date: str, trial: str) -> dict:
     """Returns structured Delsys analog data for muscle activation.
     
     Use this tool to extract raw or processed electromyography (EMG) time-series
@@ -36,7 +36,7 @@ async def get_emg_signals(patient_id: str, session_date: str, trial: str) -> Dic
         logger.error(f"Failed to load EMG data for {patient_id}/{session_date}/{trial}: {e}")
         raise RuntimeError(f"Could not load EMG data: {e}")
 
-async def get_force_plate_data(patient_id: str, session_date: str, trial: str) -> Dict[str, Any]:
+async def get_force_plate_data(patient_id: str, session_date: str, trial: str) -> dict:
     """Returns Fx, Fy, Fz, and CoP arrays from force plates.
     
     Use this tool to obtain ground reaction forces and center of pressure
@@ -61,7 +61,7 @@ async def get_force_plate_data(patient_id: str, session_date: str, trial: str) -
         logger.error(f"Failed to load force plate data for {patient_id}/{session_date}/{trial}: {e}")
         raise RuntimeError(f"Could not load force plate data: {e}")
 
-async def fill_trajectory_gaps(patient_id: str, session_date: str, max_gap_frames: int) -> Dict[str, Any]:
+async def fill_trajectory_gaps(patient_id: str, session_date: str, max_gap_frames: int) -> dict:
     """Triggers a QTM gap-fill script to interpolate missing marker trajectories.
     
     Use this tool to clean up raw optical tracking data before running biomechanical
@@ -137,7 +137,7 @@ async def fill_trajectory_gaps(patient_id: str, session_date: str, max_gap_frame
         "max_gap_frames": max_gap_frames,
     }
 
-async def filter_signals(patient_id: str, session_date: str, signal_type: str, cutoff_freq: float) -> Dict[str, Any]:
+async def filter_signals(patient_id: str, session_date: str, signal_type: str, cutoff_freq: float) -> dict:
     """Applies low-pass filtering to marker trajectories or analog signals.
     
     Use this tool to smooth noisy kinematic or kinetic data (e.g., using a zero-lag

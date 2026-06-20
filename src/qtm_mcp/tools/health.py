@@ -9,7 +9,7 @@ from qtm_mcp.utils import validate_patient_id, validate_patient_inputs, safe_pat
 
 logger = logging.getLogger("Universal_QTM_Server.health")
 
-async def health_check() -> Dict[str, Any]:
+async def health_check() -> dict:
     """Pings the QTM REST API, checks RT port status, and verifies MATLAB/OpenSim paths.
     
     Use this tool to quickly verify system health and ensure all required external
@@ -51,7 +51,7 @@ async def health_check() -> Dict[str, Any]:
         "projects_root": projects_root_status
     }
 
-async def list_sessions(patient_id: str) -> List[str]:
+async def list_sessions(patient_id: str) -> list:
     """Returns a list of available session dates for a given patient.
     
     Use this tool to discover the recorded capture sessions for a specific patient.
@@ -77,7 +77,7 @@ async def list_sessions(patient_id: str) -> List[str]:
     sessions = [d.name for d in patient_dir.iterdir() if d.is_dir() and date_re.match(d.name)]
     return sorted(sessions)
 
-async def start_stop_capture(trial_name: str, action: str) -> Dict[str, str]:
+async def start_stop_capture(trial_name: str, action: str) -> dict:
     """Uses QTM REST API to trigger/stop cameras.
     
     Use this tool to control the Qualisys Track Manager hardware state remotely.
@@ -113,28 +113,17 @@ async def start_stop_capture(trial_name: str, action: str) -> Dict[str, str]:
         logger.error("Capture %s failed: %s", action, e)
         return {"status": "error", "code": "UNKNOWN_ERROR", "action": action, "message": str(e)}
 
-async def get_calibration_status() -> Dict[str, Any]:
+async def get_calibration_status() -> dict:
     """Queries QTM for the latest wand calibration error metrics.
     
     Use this tool to ensure that the camera system calibration is within acceptable
     limits before initiating a new capture session or trusting recorded 3D data.
     """
-    settings = get_settings()
-    
     try:
-        import qtm_rt
-    except ImportError:
-        raise RuntimeError(
-            "The 'qtm-rt' SDK is not installed. Calibration query is unavailable."
-        )
-
-    connection = await qtm_rt.connect(settings.qtm_rt_host, port=settings.qtm_rt_port)
-    if connection is None:
-        raise ConnectionError(
-            f"Failed to connect to QTM RT server at {settings.qtm_rt_host}:{settings.qtm_rt_port}"
-        )
-
-    try:
+        from qtm_mcp.connection import get_connection_manager
+        manager = get_connection_manager()
+        connection = await manager.get_rt()
+        
         xml_str = await connection.get_parameters(parameters=["calibration"])
         
         # Parse XML
@@ -177,10 +166,26 @@ async def get_calibration_status() -> Dict[str, Any]:
         logger.error(f"Error querying calibration status: {e}")
         return {
             "status": "error",
+            "code": "RT_CONNECTION_FAILED",
             "message": str(e)
         }
-    finally:
-        try:
-            await connection.disconnect()
-        except Exception as e:
-            logger.error(f"Error disconnecting: {e}")
+
+async def set_qtm_event(event_label: str) -> dict:
+    """Inserts a named event marker into the active recording timeline.
+    
+    Use this tool to mark significant points in time (e.g. heel strike) during a capture.
+    """
+    try:
+        from qtm_mcp.connection import get_connection_manager
+        manager = get_connection_manager()
+        connection = await manager.get_rt()
+        
+        await connection.set_qtm_event(event_label)
+        return {"status": "success", "event": event_label}
+    except Exception as e:
+        logger.error(f"Error setting QTM event: {e}")
+        return {
+            "status": "error",
+            "code": "RT_CONNECTION_FAILED",
+            "message": str(e)
+        }

@@ -21,7 +21,7 @@ _NORMATIVE_DB: Dict[str, Dict[str, Any]] = {
     "step_width": {"mean": 0.08, "sd": 0.02, "unit": "m"},
 }
 
-async def export_timeseries(patient_id: str, session_date: str, format: str = "json") -> Dict[str, Any]:
+async def export_timeseries(patient_id: str, session_date: str, format: str = "json") -> dict:
     """Flattens selected clinical metrics into an AI-ready training array.
     
     Use this tool to compile kinematic, kinetic, and spatiotemporal data
@@ -35,7 +35,7 @@ async def export_timeseries(patient_id: str, session_date: str, format: str = "j
     patient_path = await safe_patient_path(base_dir, patient_id, session_date)
     pid_hash = hashlib.sha256(patient_id.encode()).hexdigest()[:12]
 
-    def _scan_and_read(session_dir: Path) -> Dict[str, Any]:
+    def _scan_and_read(session_dir: Path) -> dict:
         import os
         aggregated: Dict[str, Any] = {}
         if not session_dir.is_dir():
@@ -58,7 +58,7 @@ async def export_timeseries(patient_id: str, session_date: str, format: str = "j
         "data": data,
     }
 
-async def segment_gait_cycles(patient_id: str, session_date: str) -> Dict[str, Any]:
+async def segment_gait_cycles(patient_id: str, session_date: str) -> dict:
     """Returns frame indices sliced from heel-strike to heel-strike.
     
     Use this tool to normalize time-series data to 0-100% of the gait cycle,
@@ -80,7 +80,7 @@ async def segment_gait_cycles(patient_id: str, session_date: str) -> Dict[str, A
 
     safe_path = await confined_file(Path(base_dir), candidate, {".json"})
 
-    def _read(path: Path) -> Dict[str, Any]:
+    def _read(path: Path) -> dict:
         import os
         if os.path.getsize(path) > 10 * 1024 * 1024:
             raise ValueError("File too large (>10 MB)")
@@ -91,7 +91,7 @@ async def segment_gait_cycles(patient_id: str, session_date: str) -> Dict[str, A
     logger.info("segment_gait_cycles loaded for patient %s, session %s", pid_hash, session_date)
     return data
 
-async def compare_sessions(patient_id: str, pre_date: str, post_date: str) -> Dict[str, Any]:
+async def compare_sessions(patient_id: str, pre_date: str, post_date: str) -> dict:
     """Returns a delta analysis of spatiotemporal parameters between two sessions.
     
     Use this tool to evaluate patient progress or surgical outcomes by comparing
@@ -113,7 +113,7 @@ async def compare_sessions(patient_id: str, pre_date: str, post_date: str) -> Di
     safe_pre = await confined_file(Path(base_dir), pre_candidate, {".json"})
     safe_post = await confined_file(Path(base_dir), post_candidate, {".json"})
 
-    def _read(path: Path) -> Dict[str, Any]:
+    def _read(path: Path) -> dict:
         import os
         if os.path.getsize(path) > 10 * 1024 * 1024:
             raise ValueError("File too large (>10 MB)")
@@ -146,7 +146,7 @@ async def compare_sessions(patient_id: str, pre_date: str, post_date: str) -> Di
         "post_metrics": post_data,
     }
 
-async def lookup_normative_data(age: int, sex: str, metric: str) -> Dict[str, Any]:
+async def lookup_normative_data(age: int, sex: str, metric: str) -> dict:
     """Returns expected reference bands for comparison.
     
     Use this tool to fetch standardized reference bounds (mean ± standard deviation)

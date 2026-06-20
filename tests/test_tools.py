@@ -2,8 +2,9 @@ import pytest
 from qtm_mcp.server import create_server
 
 EXPECTED_TOOLS = {
-    "load_patient_session",
-    "fetch_qtm_data",
+    "stream_3d_markers",
+    "stream_6dof_data",
+    "start_stop_capture",
     "trigger_processing_pipeline",
     "fetch_clinical_metrics",
     "extract_video_keyframes",

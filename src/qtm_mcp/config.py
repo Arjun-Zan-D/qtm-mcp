@@ -20,9 +20,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Configuration settings for the QTM MCP server, loaded dynamically from environment variables."""
 
-    # QTM REST API configuration
+    # QTM REST API configuration (General)
     qtm_rest_port: int = 22222
     qtm_rest_host: str = "localhost"
+
+    # QTM Scripting API configuration
+    qtm_scripting_port: int = 7979
+    qtm_scripting_host: str = "localhost"
 
     # QTM RT (Real-Time) protocol configuration
     qtm_rt_port: int = 22223
@@ -53,6 +57,11 @@ class Settings(BaseSettings):
     def qtm_rest_url(self) -> str:
         """Returns the fully qualified REST API endpoint URL."""
         return f"http://{self.qtm_rest_host}:{self.qtm_rest_port}"
+
+    @property
+    def qtm_scripting_url(self) -> str:
+        """Returns the fully qualified Scripting API endpoint URL."""
+        return f"http://{self.qtm_scripting_host}:{self.qtm_scripting_port}"
 
 
 @lru_cache(maxsize=1)

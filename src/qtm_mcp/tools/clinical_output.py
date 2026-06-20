@@ -19,7 +19,7 @@ from qtm_mcp.utils import (
 
 logger = logging.getLogger("Universal_QTM_Server.clinical_output")
 
-async def generate_pdf_report(patient_id: str, session_date: str) -> Dict[str, Any]:
+async def generate_pdf_report(patient_id: str, session_date: str) -> dict:
     """Compiles data into a PDF and returns the file path.
     
     Use this tool to generate the final formatted clinical gait analysis report
@@ -40,7 +40,7 @@ async def generate_pdf_report(patient_id: str, session_date: str) -> Dict[str, A
     try:
         safe_path = await confined_file(Path(base_dir), candidate_file, {".json"})
 
-        def _read_clinical(p: Path) -> Dict[str, Any]:
+        def _read_clinical(p: Path) -> dict:
             import os
             if os.path.getsize(p) > 10 * 1024 * 1024:
                 raise ValueError("Clinical report file exceeds 10 MB size limit")
@@ -85,7 +85,7 @@ async def generate_pdf_report(patient_id: str, session_date: str) -> Dict[str, A
         "format": "txt",
     }
 
-async def export_c3d(patient_id: str, session_date: str) -> Dict[str, Any]:
+async def export_c3d(patient_id: str, session_date: str) -> dict:
     """Triggers the QTM C3D export pipeline.
     
     Use this tool to export raw tracked marker coordinates and analog data into
@@ -107,7 +107,7 @@ async def export_c3d(patient_id: str, session_date: str) -> Dict[str, Any]:
         try:
             safe_path = await confined_file(Path(base_dir), candidate_file, {".json"})
 
-            def _read_markers(p: Path) -> Dict[str, Any]:
+            def _read_markers(p: Path) -> dict:
                 import os
                 if os.path.getsize(p) > 10 * 1024 * 1024:
                     raise ValueError("Marker data file exceeds 10 MB size limit")
@@ -151,7 +151,7 @@ async def export_c3d(patient_id: str, session_date: str) -> Dict[str, Any]:
         "note": "Exported as JSON (C3D binary requires c3d library)",
     }
 
-async def push_to_ehr(patient_id: str, session_date: str, fhir_endpoint: str) -> Dict[str, Any]:
+async def push_to_ehr(patient_id: str, session_date: str, fhir_endpoint: str) -> dict:
     """Packages the clinical summary into an HL7/FHIR payload and executes the post request.
     
     Use this tool to securely transmit the final clinical parameters and observational
@@ -175,7 +175,7 @@ async def push_to_ehr(patient_id: str, session_date: str, fhir_endpoint: str) ->
     try:
         safe_path = await confined_file(Path(base_dir), candidate_file, {".json"})
 
-        def _read_clinical(p: Path) -> Dict[str, Any]:
+        def _read_clinical(p: Path) -> dict:
             import os
             if os.path.getsize(p) > 10 * 1024 * 1024:
                 raise ValueError("Clinical report file exceeds 10 MB size limit")
@@ -232,7 +232,7 @@ async def push_to_ehr(patient_id: str, session_date: str, fhir_endpoint: str) ->
             "error": str(exc),
         }
 
-async def update_clinical_notes(patient_id: str, session_date: str, notes: str) -> Dict[str, Any]:
+async def update_clinical_notes(patient_id: str, session_date: str, notes: str) -> dict:
     """Appends AI-generated observational text to the session's metadata file.
     
     Use this tool to save the AI's diagnostic reasoning, anomaly highlights,

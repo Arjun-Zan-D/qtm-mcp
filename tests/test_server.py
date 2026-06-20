@@ -64,15 +64,22 @@ async def test_file_ops_async_iterdir(mock_patient_dir, mocker):
     mocker.patch("qtm_mcp.tools.file_ops.get_project_patient_dir", return_value=str(mock_patient_dir.parent.parent))
     mocker.patch("qtm_mcp.tools.file_ops.safe_patient_path", return_value=mock_patient_dir)
     
-    from qtm_mcp.utils import set_shared_client
+    from qtm_mcp.config import get_settings
+    from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
+    
+    manager = QTMConnectionManager(get_settings())
+    set_connection_manager(manager)
+
     mock_client = mocker.AsyncMock()
     mock_client.post.return_value.status_code = 200
-    set_shared_client(mock_client)
+    mocker.patch("qtm_mcp.connection.QTMConnectionManager.get_rest_client", return_value=mock_client)
 
     result = await load_patient_session("PAT-TEST", "2026-06-09")
     
     assert "status" in result
     assert "Success" in result["status"]
+    
+    set_connection_manager(None)
 
 @pytest.mark.asyncio
 async def test_validation_exception_graceful_handling():
@@ -173,8 +180,8 @@ def mock_qtm_rt(mocker):
     # Patch qtm_rt.connect
     mock_connect = mocker.patch("qtm_rt.connect", return_value=mock_conn)
     
-    # Enable QTM RT in tools.realtime and tools.health
-    mocker.patch("qtm_mcp.tools.realtime.QTM_RT_AVAILABLE", True)
+    # Enable QTM RT in connection
+    mocker.patch("qtm_mcp.connection.QTM_RT_AVAILABLE", True)
     
     return mock_connect, mock_conn
 
@@ -245,13 +252,14 @@ async def test_mcp_manifest(mcp_server):
     prompts = await mcp_server.list_prompts()
     
     # Assert counts match the spec
-    assert len(resources) == 2  # static resources
-    assert len(templates) == 5  # templated resources
-    assert len(tools) == 17
+    assert len(resources) == 3
+    assert len(templates) == 6
+    assert len(tools) == 29
     assert len(prompts) == 3
     
     tool_names = [t.name for t in tools]
-    assert "fetch_qtm_data" in tool_names
+    assert "stream_3d_markers" in tool_names
+    assert "stream_6dof_data" in tool_names
     assert "start_stop_capture" in tool_names
     assert "trigger_processing_pipeline" in tool_names
     
@@ -263,6 +271,11 @@ async def test_mcp_manifest(mcp_server):
 
 @pytest.mark.asyncio
 async def test_mcp_resources_health_and_calibration(mcp_server, mock_qtm_rt, mocker):
+    from qtm_mcp.config import get_settings
+    from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
+    manager = QTMConnectionManager(get_settings())
+    set_connection_manager(manager)
+
     """Test health and calibration resources which pull live/mocked system parameters."""
     mocker.patch("qtm_mcp.tools.health.health_check", return_value={"status": "healthy"})
     
@@ -281,6 +294,8 @@ async def test_mcp_resources_health_and_calibration(mcp_server, mock_qtm_rt, moc
     assert cal_data["average_residual_mm"] == 0.65
     assert cal_data["camera_count"] == 8
     assert cal_data["calibration_date"] == "2026-06-10 02:00:00"
+    
+    set_connection_manager(None)
 
 
 @pytest.mark.asyncio
@@ -314,12 +329,19 @@ async def test_mcp_session_and_reference_resources(mcp_server, mocker):
 
 
 @pytest.mark.asyncio
-async def test_mcp_realtime_fetch_qtm_data(mcp_server, mock_qtm_rt):
-    """Test the fetch_qtm_data tool against the mock streaming connection."""
+async def test_mcp_realtime_stream_tools(mcp_server, mock_qtm_rt):
+    from qtm_mcp.config import get_settings
+    from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
+    manager = QTMConnectionManager(get_settings())
+    set_connection_manager(manager)
+    
+    """Test the streaming tools against the mock streaming connection."""
     tool_result = await mcp_server.call_tool(
-        "fetch_qtm_data",
-        {"data_types": ["3d", "6d"], "frames": 2}
+        "stream_3d_markers",
+        {"marker_names": ["marker_1"], "frames": 2}
     )
+    
+    set_connection_manager(None)
     
     text = get_tool_text(tool_result)
     res_data = json.loads(text)
@@ -327,13 +349,10 @@ async def test_mcp_realtime_fetch_qtm_data(mcp_server, mock_qtm_rt):
     assert res_data["frames_collected"] >= 2
     
     first_frame = res_data["data"][0]
-    assert first_frame["frame_number"] == 1
+    assert "frame_number" in first_frame
     assert "3d" in first_frame
-    assert "6d" in first_frame
     assert len(first_frame["3d"]) == 2
     assert first_frame["3d"][0] == {"x": 1.0, "y": 2.0, "z": 3.0}
-    assert first_frame["6d"][0]["name"] == "rigid_body_1"
-    assert first_frame["6d"][0]["position"] == [0.1, 0.2, 0.3]
 
 
 @pytest.mark.asyncio

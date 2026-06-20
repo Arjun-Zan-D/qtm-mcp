@@ -37,6 +37,7 @@ from mcp.types import TextContent
 
 from qtm_mcp.config import get_settings
 from qtm_mcp.utils import set_shared_client
+from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
 
 # ── Logging guardrail ────────────────────────────────────────────────────────
 # MCP uses stdin/stdout as its JSON-RPC transport.  ALL log output MUST be
@@ -57,29 +58,20 @@ logger = logging.getLogger("Universal_QTM_Server")
 
 @asynccontextmanager
 async def server_lifespan(server: FastMCP):
-    """Manage shared resources (httpx client) across the server lifetime.
-
-    Connects the circuit-breaker HTTP client on startup and drains it cleanly
-    on shutdown.  The QTM real-time connection is stateless per-call, so no
-    persistent qtm_rt handle is opened here.
-    """
+    """Manage shared resources (httpx client and RT connection) across the server lifetime."""
     settings = get_settings()
     logger.info("Server starting. QTM REST target: %s", settings.qtm_rest_url)
 
-    client = httpx.AsyncClient(
-        base_url=settings.qtm_rest_url,
-        timeout=httpx.Timeout(5.0, connect=2.0),
-        limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-    )
-    set_shared_client(client)
-    logger.info("Shared HTTP client initialised (circuit breaker active).")
+    manager = QTMConnectionManager(settings)
+    await manager.startup()
+    set_connection_manager(manager)
 
     try:
         yield
     finally:
-        logger.info("Server shutting down — draining HTTP client.")
-        await client.aclose()
-        set_shared_client(None)
+        logger.info("Server shutting down — draining HTTP clients and RT connection.")
+        await manager.shutdown()
+        set_connection_manager(None)
         logger.info("Shutdown complete.")
 
 
@@ -124,6 +116,7 @@ def create_server() -> FastMCP:
             biomechanics,
             analytics,
             clinical_output,
+            scripting,
         )
     except ImportError as exc:
         logger.critical("Failed to import tool modules: %s", exc)
@@ -136,7 +129,7 @@ def create_server() -> FastMCP:
     # ── System state resources ───────────────────────────────────────────────
 
     @mcp.resource("qtm://status/health")
-    async def resource_health_check() -> dict[str, Any]:
+    async def resource_health_check() -> dict:
         """System health: QTM REST reachability, RT port status, MATLAB/OpenSim paths.
 
         Returns a snapshot of the system's operational status without
@@ -145,7 +138,7 @@ def create_server() -> FastMCP:
         return await with_timeout(10.0)(health.health_check)()
 
     @mcp.resource("qtm://status/calibration")
-    async def resource_calibration_status() -> dict[str, Any]:
+    async def resource_calibration_status() -> dict:
         """Latest wand calibration error metrics from QTM.
 
         Returns camera calibration quality indicators so an LLM can determine
@@ -154,10 +147,20 @@ def create_server() -> FastMCP:
         """
         return await with_timeout(10.0)(health.get_calibration_status)()
 
+    @mcp.resource("qtm://project/active")
+    async def resource_active_project() -> dict:
+        """The currently active QTM project path and metadata. Read-only."""
+        return await with_timeout(10.0)(scripting.get_active_project_path)()
+
+    @mcp.resource("qtm://project/files/{extension}")
+    async def resource_project_files(extension: str) -> dict:
+        """List of capture files in the active project, filtered by extension."""
+        return await with_timeout(30.0)(scripting.list_capture_files)(f".{extension}")
+
     # ── Session data resources ───────────────────────────────────────────────
 
     @mcp.resource("qtm://sessions/list/{patient_id}")
-    async def resource_list_sessions(patient_id: str) -> list[str]:
+    async def resource_list_sessions(patient_id: str):
         """Available session dates for *patient_id*.
 
         Returns an ordered list of YYYY-MM-DD strings so the LLM can choose
@@ -167,7 +170,7 @@ def create_server() -> FastMCP:
         return await with_timeout(10.0)(health.list_sessions)(patient_id)
 
     @mcp.resource("qtm://sessions/{patient_id}/{session_date}/anthropometrics")
-    async def resource_anthropometrics(patient_id: str, session_date: str) -> dict[str, Any]:
+    async def resource_anthropometrics(patient_id: str, session_date: str) -> dict:
         """Static physical measurements (leg length, mass, joint widths) for the patient.
 
         Provides the body-segment parameters needed to scale biomechanical
@@ -177,7 +180,7 @@ def create_server() -> FastMCP:
         return await with_timeout(10.0)(biomechanics.get_patient_anthropometrics)(patient_id)
 
     @mcp.resource("qtm://sessions/{patient_id}/{session_date}/emg")
-    async def resource_emg_signals(patient_id: str, session_date: str) -> dict[str, Any]:
+    async def resource_emg_signals(patient_id: str, session_date: str) -> dict:
         """Delsys EMG time-series for all muscles in the session.
 
         Returns raw or processed electromyography data for muscle activation
@@ -188,7 +191,7 @@ def create_server() -> FastMCP:
         )
 
     @mcp.resource("qtm://sessions/{patient_id}/{session_date}/force_plates")
-    async def resource_force_plates(patient_id: str, session_date: str) -> dict[str, Any]:
+    async def resource_force_plates(patient_id: str, session_date: str) -> dict:
         """Ground reaction forces and centre-of-pressure data from all force plates.
 
         Returns Fx, Fy, Fz, and CoP arrays required for inverse-dynamics
@@ -201,7 +204,7 @@ def create_server() -> FastMCP:
     # ── Reference data resources ─────────────────────────────────────────────
 
     @mcp.resource("qtm://reference/normative_data/{dataset_id}")
-    async def resource_normative_data(dataset_id: str) -> dict[str, Any]:
+    async def resource_normative_data(dataset_id: str) -> dict:
         """Age/sex-stratified normative reference bands for clinical metrics.
 
         The *dataset_id* encodes the cohort as ``{age}_{sex}_{metric}``,
@@ -229,14 +232,32 @@ def create_server() -> FastMCP:
     #  TOOLS  —  actions, mutations, processing triggers, capture control
     # ════════════════════════════════════════════════════════════════════════
 
+    # ── Scripting API (Discovery & File Ops) ─────────────────────────────────
+    mcp.tool()(with_timeout(10.0)(scripting.get_active_project_path))
+    mcp.tool()(with_timeout(30.0)(scripting.list_capture_files))
+    mcp.tool()(with_timeout(10.0)(scripting.load_capture_file))
+    
+    # ── Scripting API (Trajectories & PAF) ───────────────────────────────────
+    mcp.tool()(with_timeout(10.0)(scripting.find_trajectory))
+    mcp.tool()(with_timeout(60.0)(scripting.get_trajectory_samples))
+    mcp.tool()(with_timeout(300.0)(scripting.trigger_paf_analysis))
+    
+    # ── Scripting API (Settings) ─────────────────────────────────────────────
+    mcp.tool()(with_timeout(10.0)(scripting.get_qtm_setting))
+    mcp.tool()(with_timeout(10.0)(scripting.set_qtm_setting))
+
     # ── Capture control ──────────────────────────────────────────────────────
     mcp.tool()(with_timeout(10.0)(health.start_stop_capture))
+    mcp.tool()(with_timeout(10.0)(health.set_qtm_event))
 
     # ── Session loading ──────────────────────────────────────────────────────
     mcp.tool()(with_timeout(60.0)(file_ops.load_patient_session))
 
     # ── Real-time data acquisition ───────────────────────────────────────────
-    mcp.tool()(with_timeout(10.0)(realtime.fetch_qtm_data))
+    mcp.tool()(with_timeout(10.0)(realtime.stream_6dof_data))
+    mcp.tool()(with_timeout(10.0)(realtime.stream_3d_markers))
+    mcp.tool()(with_timeout(10.0)(realtime.stream_analog_data))
+    mcp.tool()(with_timeout(10.0)(realtime.stream_skeleton_data))
 
     # ── Video processing ─────────────────────────────────────────────────────
     mcp.tool()(with_timeout(120.0)(video.extract_video_keyframes))
@@ -271,7 +292,7 @@ def create_server() -> FastMCP:
     # ════════════════════════════════════════════════════════════════════════
 
     @mcp.prompt()
-    async def analyze_gait_cycle(patient_id: str, session_date: str) -> list[TextContent]:
+    async def analyze_gait_cycle(patient_id: str, session_date: str) -> list:
         """Guided workflow: identify left/right gait asymmetries in a QTM session.
 
         Loads joint angles and force-plate data for *patient_id* on
@@ -316,7 +337,7 @@ def create_server() -> FastMCP:
         return [TextContent(type="text", text=prompt_text)]
 
     @mcp.prompt()
-    async def summarize_clinical_session(patient_id: str, session_date: str) -> list[TextContent]:
+    async def summarize_clinical_session(patient_id: str, session_date: str) -> list:
         """Guided workflow: draft a clinical EHR note from session metrics.
 
         Retrieves the clinical metrics file for *patient_id* on *session_date*
@@ -364,7 +385,7 @@ def create_server() -> FastMCP:
         return [TextContent(type="text", text=prompt_text)]
 
     @mcp.prompt()
-    async def troubleshoot_calibration() -> list[TextContent]:
+    async def troubleshoot_calibration() -> list:
         """Guided workflow: diagnose camera calibration issues in QTM.
 
         Reads the current calibration status resource and provides the LLM

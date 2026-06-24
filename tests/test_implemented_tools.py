@@ -359,24 +359,13 @@ class TestUpdateClinicalNotes:
 class TestStartStopCaptureCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_breaker_returns_structured_error(self, mocker):
-        from qtm_mcp.config import get_settings
-        from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
-        
-        manager = QTMConnectionManager(get_settings())
-        set_connection_manager(manager)
-
-        mock_client = mocker.AsyncMock()
-        mock_client.post.side_effect = RuntimeError(
-            "Circuit Breaker OPEN: QTM REST API is temporarily unavailable."
-        )
-        mocker.patch("qtm_mcp.connection.QTMConnectionManager.get_rest_client", return_value=mock_client)
-
+        from qtm_mcp.tools.health import start_stop_capture
+        mock_post = mocker.patch("qtm_mcp.tools.health.sync_requests.post")
+        mock_post.side_effect = Exception("Connection Refused")
+    
         result = await start_stop_capture("gait_trial_1", "start")
         assert result["status"] == "error"
-        assert result["code"] == "CIRCUIT_BREAKER_OPEN"
-        assert "Circuit Breaker" in result["message"]
-        
-        set_connection_manager(None)
+        assert result["code"] == "UNKNOWN_ERROR"
 
 
 class TestStreamToolsOffline:
@@ -421,6 +410,94 @@ class TestStreamToolsOffline:
 # ════════════════════════════════════════════════════════════════════════════
 #  Stdout Pollution Audit
 # ════════════════════════════════════════════════════════════════════════════
+
+class TestFetchQtmData:
+    @pytest.mark.asyncio
+    async def test_fetch_qtm_data_success(self, mocker):
+        from qtm_mcp.tools.realtime import fetch_qtm_data
+        from qtm_mcp.connection import set_connection_manager
+        
+        mock_manager = mocker.AsyncMock()
+        mock_manager.get_rt_frame.return_value = {
+            "frame_number": 123,
+            "3d": [{"x": 1}],
+            "6d": [],
+            "analog": [],
+            "force": [],
+            "skeleton": []
+        }
+        set_connection_manager(mock_manager)
+        
+        res = await fetch_qtm_data()
+        assert res["status"] == "success"
+        assert res["data"]["frame_number"] == 123
+        set_connection_manager(None)
+
+class TestOpenSimDynamicPath:
+    @pytest.mark.asyncio
+    async def test_auto_generate_ik_template(self, mocker, tmp_path):
+        from qtm_mcp.tools.pipeline import trigger_processing_pipeline
+        mocker.patch("qtm_mcp.tools.pipeline.get_project_patient_dir", return_value=str(tmp_path / "Patient_Data"))
+        
+        mock_process = mocker.AsyncMock()
+        mock_process.returncode = 0
+        mock_process.communicate.return_value = (b"done", b"")
+        mocker.patch("asyncio.create_subprocess_exec", return_value=mock_process)
+        
+        res = await trigger_processing_pipeline("PT123", "2024-01-01", "opensim")
+        assert res["status"] == "Success"
+        assert res["warning"] == "default_template_used"
+        
+        opensim_dir = tmp_path / "OpenSim"
+        xml = opensim_dir / "Setup_IK_PT123.xml"
+        assert xml.exists()
+
+class TestStartStopCaptureRequests:
+    @pytest.mark.asyncio
+    async def test_start_stop_capture(self, mocker):
+        from qtm_mcp.tools.health import start_stop_capture
+        mock_post = mocker.patch("qtm_mcp.tools.health.sync_requests.post")
+        mock_post.return_value.raise_for_status.return_value = None
+        
+        res = await start_stop_capture("trial1", "start")
+        assert res["status"] == "success"
+        mock_post.assert_called_once()
+
+class TestSegmentGaitCyclesErrorMessage:
+    @pytest.mark.asyncio
+    async def test_error_message_has_patient_id(self, tmp_path):
+        from qtm_mcp.tools.analytics import segment_gait_cycles
+        with pytest.raises(FileNotFoundError, match="gait_cycles.json not found for patient PT999"):
+            await segment_gait_cycles("PT999", "2024-01-01")
+
+class TestFhirAllowlistParsing:
+    def test_fhir_parsing(self, monkeypatch):
+        from qtm_mcp.config import Settings
+        monkeypatch.setenv("FHIR_ALLOWED_ENDPOINTS", "http://a.com, http://b.com ")
+        settings = Settings()
+        assert settings.allowed_fhir_endpoints == ["http://a.com", "http://b.com"]
+
+class TestGeneratePdfReportFormat:
+    @pytest.mark.asyncio
+    async def test_pdf_fallback(self, tmp_path, mocker):
+        from qtm_mcp.tools.clinical_output import generate_pdf_report
+        mocker.patch("qtm_mcp.tools.clinical_output.get_project_patient_dir", return_value=str(tmp_path))
+        
+        # Test without reportlab
+        mocker.patch.dict("sys.modules", {"reportlab.pdfgen": None})
+        res = await generate_pdf_report("PT123", "2024-01-01")
+        assert res["status"] == "success"
+        assert res["format"] == "txt"
+
+class TestExportC3dBinary:
+    @pytest.mark.asyncio
+    async def test_c3d_fallback(self, tmp_path, mocker):
+        from qtm_mcp.tools.clinical_output import export_c3d
+        mocker.patch("qtm_mcp.tools.clinical_output.get_project_patient_dir", return_value=str(tmp_path))
+        
+        res = await export_c3d("PT123", "2024-01-01")
+        assert res["status"] == "success"
+        assert res["format"] == "json"
 
 class TestStdoutPollution:
     """Verify that NO tool module contains print() statements."""

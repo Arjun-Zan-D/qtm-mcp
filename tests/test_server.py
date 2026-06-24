@@ -254,7 +254,7 @@ async def test_mcp_manifest(mcp_server):
     # Assert counts match the spec
     assert len(resources) == 3
     assert len(templates) == 6
-    assert len(tools) == 29
+    assert len(tools) == 30
     assert len(prompts) == 3
     
     tool_names = [t.name for t in tools]

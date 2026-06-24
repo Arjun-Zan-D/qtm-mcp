@@ -44,7 +44,14 @@ class Settings(BaseSettings):
     opensim_config_root: str = "~/QTM_Projects/My_Gait_Lab/OpenSim"
 
     # Allowlist for EHR endpoints
-    allowed_fhir_endpoints: list[str] = []
+    fhir_allowed_endpoints: str = ""
+
+    @property
+    def allowed_fhir_endpoints(self) -> list[str]:
+        """Parse comma-separated FHIR endpoint allowlist."""
+        if not self.fhir_allowed_endpoints:
+            return []
+        return [u.strip() for u in self.fhir_allowed_endpoints.split(",") if u.strip()]
 
     # Enable reading from .env files
     model_config = SettingsConfigDict(

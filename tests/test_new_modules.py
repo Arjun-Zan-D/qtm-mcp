@@ -36,7 +36,7 @@ class TestClinicalOutput:
     async def test_push_to_ehr_allowlist(self):
         settings = get_settings()
         # Ensure allowlist is empty initially
-        settings.allowed_fhir_endpoints = []
+        settings.fhir_allowed_endpoints = ""
 
         with pytest.raises(PermissionError, match="not in the approved allowlist"):
             await clinical_output.push_to_ehr(VALID_PATIENT, VALID_DATE, "https://unauthorized.ehr.com/fhir")

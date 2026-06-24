@@ -53,37 +53,79 @@ async def generate_pdf_report(patient_id: str, session_date: str) -> dict:
         logger.warning(f"Clinical report not found for patient {hashed_id}: {exc}")
         clinical_data = {"note": "No clinical report data available — placeholder report"}
 
-    # Build text report
-    report_lines = [
-        f"Clinical Gait Analysis Report",
-        f"==============================",
-        f"Patient ID : {patient_id}",
-        f"Session    : {session_date}",
-        f"Generated  : {datetime.now(timezone.utc).isoformat()}",
-        f"",
-    ]
-    for key, value in clinical_data.items():
-        report_lines.append(f"{key}: {value}")
-    report_text = "\n".join(report_lines) + "\n"
+    try:
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        _HAS_REPORTLAB = True
+    except ImportError:
+        _HAS_REPORTLAB = False
 
-    # Write report file
-    report_path = patient_path / f"{patient_id}_report.txt"
+    if _HAS_REPORTLAB:
+        report_path = patient_path / f"{patient_id}_report.pdf"
+        
+        def _write_pdf(p: Path, data: Dict[str, Any]) -> None:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            c = canvas.Canvas(str(p), pagesize=A4)
+            c.setFont('Helvetica-Bold', 14)
+            c.drawString(72, 780, f"Clinical Gait Analysis Report")
+            c.setFont('Helvetica', 11)
+            c.drawString(72, 760, f"Patient ID : {patient_id}")
+            c.drawString(72, 745, f"Session    : {session_date}")
+            c.drawString(72, 730, f"Generated  : {datetime.now(timezone.utc).isoformat()}")
+            
+            y = 700
+            for key, value in data.items():
+                c.drawString(72, y, f"{key}: {value}")
+                y -= 15
+                if y < 50:
+                    c.showPage()
+                    c.setFont('Helvetica', 11)
+                    y = 780
+            c.save()
+            
+        await asyncio.to_thread(_write_pdf, report_path, clinical_data)
+        logger.info(f"PDF report written for patient {hashed_id} at {report_path}")
+        
+        return {
+            "status": "success",
+            "patient_id": patient_id,
+            "session_date": session_date,
+            "report_path": str(report_path),
+            "format": "pdf",
+        }
+    else:
+        # Build text report
+        report_lines = [
+            f"Clinical Gait Analysis Report",
+            f"==============================",
+            f"Patient ID : {patient_id}",
+            f"Session    : {session_date}",
+            f"Generated  : {datetime.now(timezone.utc).isoformat()}",
+            f"",
+        ]
+        for key, value in clinical_data.items():
+            report_lines.append(f"{key}: {value}")
+        report_text = "\n".join(report_lines) + "\n"
 
-    def _write_report(p: Path, content: str) -> None:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "w") as f:
-            f.write(content)
+        # Write report file
+        report_path = patient_path / f"{patient_id}_report.txt"
 
-    await asyncio.to_thread(_write_report, report_path, report_text)
-    logger.info(f"Report written for patient {hashed_id} at {report_path}")
+        def _write_report(p: Path, content: str) -> None:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "w") as f:
+                f.write(content)
 
-    return {
-        "status": "success",
-        "patient_id": patient_id,
-        "session_date": session_date,
-        "report_path": str(report_path),
-        "format": "txt",
-    }
+        await asyncio.to_thread(_write_report, report_path, report_text)
+        logger.info(f"Report written for patient {hashed_id} at {report_path}")
+
+        return {
+            "status": "success",
+            "patient_id": patient_id,
+            "session_date": session_date,
+            "report_path": str(report_path),
+            "format": "txt",
+            "note": "Generated as TXT (reportlab library not installed)",
+        }
 
 async def export_c3d(patient_id: str, session_date: str) -> dict:
     """Triggers the QTM C3D export pipeline.
@@ -120,35 +162,89 @@ async def export_c3d(patient_id: str, session_date: str) -> dict:
         except (FileNotFoundError, ValueError):
             continue
 
-    if not marker_data:
+    if not marker_data or "markers" not in marker_data:
         logger.warning(f"No marker trajectory data found for patient {hashed_id}")
-        marker_data = {"note": "No marker trajectory data available"}
+        
+        # Build JSON export payload
+        export_payload = {
+            "patient_id": patient_id,
+            "session_date": session_date,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "marker_data": marker_data or {"note": "No marker trajectory data available"},
+        }
+        export_path = patient_path / f"{patient_id}_export.json"
 
-    # Build JSON export payload
-    export_payload = {
-        "patient_id": patient_id,
-        "session_date": session_date,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
-        "marker_data": marker_data,
-    }
+        def _write_export(p: Path, data: Dict[str, Any]) -> None:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "w") as f:
+                json.dump(data, f, indent=2)
 
-    export_path = patient_path / f"{patient_id}_export.json"
+        await asyncio.to_thread(_write_export, export_path, export_payload)
+        logger.info(f"Export written for patient {hashed_id} at {export_path}")
 
-    def _write_export(p: Path, data: Dict[str, Any]) -> None:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "w") as f:
-            json.dump(data, f, indent=2)
+        return {
+            "status": "success",
+            "patient_id": patient_id,
+            "session_date": session_date,
+            "export_path": str(export_path),
+            "format": "json",
+            "note": "Exported as JSON (marker data missing for C3D binary export)",
+        }
 
-    await asyncio.to_thread(_write_export, export_path, export_payload)
-    logger.info(f"Export written for patient {hashed_id} at {export_path}")
+    try:
+        import c3d
+        _HAS_C3D = True
+    except ImportError:
+        _HAS_C3D = False
+
+    if not _HAS_C3D:
+        # Build JSON export payload
+        export_payload = {
+            "patient_id": patient_id,
+            "session_date": session_date,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "marker_data": marker_data,
+        }
+        export_path = patient_path / f"{patient_id}_export.json"
+
+        def _write_export_json(p: Path, data: Dict[str, Any]) -> None:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "w") as f:
+                json.dump(data, f, indent=2)
+
+        await asyncio.to_thread(_write_export_json, export_path, export_payload)
+        logger.info(f"Export written for patient {hashed_id} at {export_path}")
+
+        return {
+            "status": "success",
+            "patient_id": patient_id,
+            "session_date": session_date,
+            "export_path": str(export_path),
+            "format": "json",
+            "note": "Exported as JSON (C3D binary requires c3d library)",
+        }
+
+    # Build C3D writer with marker data
+    writer = c3d.Writer()
+    markers = marker_data["markers"]
+    marker_labels = list(markers.keys())
+    
+    c3d_path = patient_path / f"{patient_id}_export.c3d"
+
+    def _write_c3d():
+        writer.set_point_labels(marker_labels)
+        with open(c3d_path, 'wb') as f:
+            writer.write(f)
+
+    await asyncio.to_thread(_write_c3d)
+    logger.info(f"C3D export written for patient {hashed_id} at {c3d_path}")
 
     return {
         "status": "success",
         "patient_id": patient_id,
         "session_date": session_date,
-        "export_path": str(export_path),
-        "format": "json",
-        "note": "Exported as JSON (C3D binary requires c3d library)",
+        "export_path": str(c3d_path),
+        "format": "c3d",
     }
 
 async def push_to_ehr(patient_id: str, session_date: str, fhir_endpoint: str) -> dict:

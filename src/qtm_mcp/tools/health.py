@@ -3,6 +3,7 @@ import hashlib
 import asyncio
 from pathlib import Path
 from typing import Dict, Any, List
+import requests as sync_requests
 
 from qtm_mcp.config import get_settings
 from qtm_mcp.utils import validate_patient_id, validate_patient_inputs, safe_patient_path, get_project_patient_dir, get_shared_client
@@ -89,26 +90,14 @@ async def start_stop_capture(trial_name: str, action: str) -> dict:
         raise ValueError("Action must be 'start' or 'stop'.")
         
     try:
-        client = get_shared_client()
-        endpoint = f"{settings.qtm_rest_url}/api/capture/{action}"
-        payload = {"name": trial_name} if action == "start" else {}
-        resp = await client.post(endpoint, json=payload, timeout=5.0)
+        def _do_capture():
+            endpoint = f"{settings.qtm_rest_url}/api/capture/{action}"
+            payload = {"name": trial_name} if action == "start" else {}
+            return sync_requests.post(endpoint, json=payload, timeout=5.0)
+
+        resp = await asyncio.to_thread(_do_capture)
         resp.raise_for_status()
         return {"status": "success", "action": action, "trial": trial_name}
-    except RuntimeError as e:
-        # Circuit breaker or infrastructure error
-        error_msg = str(e)
-        if "Circuit Breaker OPEN" in error_msg:
-            logger.warning("Capture %s blocked by circuit breaker.", action)
-            return {
-                "status": "error",
-                "code": "CIRCUIT_BREAKER_OPEN",
-                "action": action,
-                "trial": trial_name,
-                "message": error_msg,
-            }
-        logger.error("Capture %s runtime error: %s", action, e)
-        return {"status": "error", "code": "RUNTIME_ERROR", "action": action, "message": error_msg}
     except Exception as e:
         logger.error("Capture %s failed: %s", action, e)
         return {"status": "error", "code": "UNKNOWN_ERROR", "action": action, "message": str(e)}

@@ -13,6 +13,39 @@ A professional, modular Model Context Protocol (MCP) server that acts as a bridg
 
 ---
 
+## Configuration
+
+Configure the server via environment variables or a `.env` file in the project root. See `.env.example` for a full list of supported variables.
+
+### Key Environment Variables
+
+*   **`QTM_REST_HOST` / `QTM_REST_PORT`**: Endpoint for the QTM REST API (default: `localhost:22222`).
+*   **`QTM_SCRIPTING_HOST` / `QTM_SCRIPTING_PORT`**: Endpoint for the QTM Scripting API (default: `localhost:7979`).
+*   **`QTM_RT_HOST` / `QTM_RT_PORT`**: Endpoint for the QTM RT stream (default: `127.0.0.1:22223`).
+*   **`QTM_PROJECT_DIR`**: Fallback directory for patient data if dynamic resolution fails.
+*   **`FHIR_ALLOWED_ENDPOINTS`**: Comma-separated list of approved EHR endpoints for clinical output.
+
+### Optional Dependencies
+
+Install specific capability groups or all of them:
+
+```bash
+pip install qtm-mcp[vision]       # For video processing
+pip install qtm-mcp[clinical]     # For PDF and FHIR exports
+pip install qtm-mcp[biomechanics] # For biomechanical analytics
+pip install qtm-mcp[all]          # Install all optional dependencies
+```
+
+### Session Data Structure
+
+The server expects patient data files within the active QTM project directory under `Patient_Data/{patient_id}/{session_date}/`. Files should include:
+- `{patient_id}_clinical_report.json`
+- `gait_cycles.json`
+- `marker_trajectories.json`
+- OpenSim configurations under `OpenSim/Setup_IK_{patient_id}.xml`
+
+---
+
 ## Directory Architecture
 
 ```

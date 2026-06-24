@@ -75,7 +75,7 @@ async def segment_gait_cycles(patient_id: str, session_date: str) -> dict:
     candidate = patient_path / "gait_cycles.json"
     if not candidate.exists():
         raise FileNotFoundError(
-            f"gait_cycles.json not found for patient {pid_hash}, session {session_date}"
+            f"gait_cycles.json not found for patient {patient_id}, session {session_date}"
         )
 
     safe_path = await confined_file(Path(base_dir), candidate, {".json"})

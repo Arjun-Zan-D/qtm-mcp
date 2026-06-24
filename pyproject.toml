@@ -22,6 +22,8 @@ dependencies = [
     "httpx>=0.28,<1",
     "pydantic-settings>=2.1.0",
     "qtm-rt>=3.0.2,<4",
+    "requests>=2.31.0",
+    "c3d>=0.5.2",
 ]
 
 [project.optional-dependencies]

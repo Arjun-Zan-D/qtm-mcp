@@ -258,6 +258,7 @@ def create_server() -> FastMCP:
     mcp.tool()(with_timeout(10.0)(realtime.stream_3d_markers))
     mcp.tool()(with_timeout(10.0)(realtime.stream_analog_data))
     mcp.tool()(with_timeout(10.0)(realtime.stream_skeleton_data))
+    mcp.tool()(with_timeout(10.0)(realtime.fetch_qtm_data))
 
     # ── Video processing ─────────────────────────────────────────────────────
     mcp.tool()(with_timeout(120.0)(video.extract_video_keyframes))
@@ -285,7 +286,7 @@ def create_server() -> FastMCP:
     mcp.tool()(with_timeout(60.0)(clinical_output.push_to_ehr))
     mcp.tool()(with_timeout(30.0)(clinical_output.update_clinical_notes))
 
-    logger.info("Registered 17 MCP Tools.")
+    logger.info("Registered 18 MCP Tools.")
 
     # ════════════════════════════════════════════════════════════════════════
     #  PROMPTS  —  guided LLM workflows for clinical review and diagnostics

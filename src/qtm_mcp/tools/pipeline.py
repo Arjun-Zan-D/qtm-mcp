@@ -29,6 +29,21 @@ from qtm_mcp.utils import (
 
 logger = logging.getLogger("Universal_QTM_Server.pipeline")
 
+def _generate_default_ik_setup(xml_path: Path, patient_id: str):
+    xml_content = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<OpenSimDocument Version="40000">
+    <InverseKinematicsTool>
+        <!-- Default auto-generated template for {patient_id} -->
+        <model_file>placeholder_model.osim</model_file>
+        <marker_file>placeholder_markers.trc</marker_file>
+        <coordinate_file>placeholder_coordinates.mot</coordinate_file>
+        <time_range>0 1</time_range>
+    </InverseKinematicsTool>
+</OpenSimDocument>"""
+    xml_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(xml_path, "w") as f:
+        f.write(xml_content)
+
 
 async def trigger_processing_pipeline(
     patient_id: str, session_date: str, pipeline_type: str
@@ -59,6 +74,7 @@ async def trigger_processing_pipeline(
     settings = get_settings()
     patient_dir_str = str(patient_dir).replace("\\", "/")
     config_path = None
+    warning_msg = None
 
     # ── Build command for the requested pipeline engine ───────────────────────
     if pipeline_type.lower() == "matlab":
@@ -101,12 +117,27 @@ async def trigger_processing_pipeline(
             raise RuntimeError(f"Could not create temporary configuration file: {e}")
 
     elif pipeline_type.lower() == "opensim":
-        # SECURE PATTERN: Resolve the OpenSim XML path and verify it remains
-        # within the configured opensim_config_root boundary.
-        opensim_root = Path(settings.opensim_config_root).expanduser().resolve()
+        # SECURE PATTERN: Resolve the OpenSim XML path dynamically from project root.
+        # Fall back to settings.opensim_config_root if dynamic resolution fails.
+        base_dir = await get_project_patient_dir()
+        if base_dir and "Patient_Data" in base_dir:
+            project_root = Path(base_dir.replace("Patient_Data", "").rstrip("/\\"))
+            opensim_dir = project_root / "OpenSim"
+        else:
+            opensim_dir = Path(settings.opensim_config_root).expanduser()
+
+        opensim_root = opensim_dir.resolve()
         setup_xml = (opensim_root / f"Setup_IK_{patient_id}.xml").resolve()
+        
         if not setup_xml.is_relative_to(opensim_root):
             raise PermissionError("OpenSim config path escapes the configured root directory.")
+
+        log_dir = opensim_root.parent / "Logs"
+        os.makedirs(log_dir, exist_ok=True)
+
+        if not setup_xml.exists():
+            _generate_default_ik_setup(setup_xml, patient_id)
+            warning_msg = "default_template_used"
 
         command = [
             "opensim-cmd",
@@ -133,12 +164,15 @@ async def trigger_processing_pipeline(
                     details = "No output provided (silent failure)"
                 raise RuntimeError(f"Error: Pipeline {pipeline_type} exited with code {process.returncode}. Details: {details}")
             
-            return {
+            result = {
                 "status": "Success",
                 "pipeline_engine": pipeline_type,
                 "processed_directory": patient_dir_str,
                 "stdout": stdout.decode()
             }
+            if warning_msg:
+                result["warning"] = warning_msg
+            return result
         except (TimeoutError, asyncio.CancelledError):
             process.kill()
             await process.wait()

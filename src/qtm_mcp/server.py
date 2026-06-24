@@ -186,8 +186,12 @@ def create_server() -> FastMCP:
         Returns raw or processed electromyography data for muscle activation
         timing and amplitude analysis.
         """
+        # No trial in the resource URI -- pass trial=None so telemetry reads
+        # the session-level emg_data.json directly. Clients that need a
+        # specific trial should invoke get_emg_signals as a tool with the
+        # trial argument set explicitly.
         return await with_timeout(60.0)(telemetry.get_emg_signals)(
-            patient_id, session_date, trial="default"
+            patient_id, session_date, trial=None
         )
 
     @mcp.resource("qtm://sessions/{patient_id}/{session_date}/force_plates")
@@ -197,8 +201,10 @@ def create_server() -> FastMCP:
         Returns Fx, Fy, Fz, and CoP arrays required for inverse-dynamics
         calculations.
         """
+        # No trial in the resource URI -- pass trial=None so telemetry reads
+        # the session-level force_plate_data.json directly.
         return await with_timeout(60.0)(telemetry.get_force_plate_data)(
-            patient_id, session_date, trial="default"
+            patient_id, session_date, trial=None
         )
 
     # ── Reference data resources ─────────────────────────────────────────────

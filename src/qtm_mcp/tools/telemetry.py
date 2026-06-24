@@ -10,12 +10,22 @@ from qtm_mcp.utils import validate_patient_inputs, safe_patient_path, get_projec
 
 logger = logging.getLogger("Universal_QTM_Server.telemetry")
 
-async def get_emg_signals(patient_id: str, session_date: str, trial: str) -> dict:
+async def get_emg_signals(
+    patient_id: str, session_date: str, trial: str | None = None
+) -> dict:
     """Returns structured Delsys analog data for muscle activation.
     
     Use this tool to extract raw or processed electromyography (EMG) time-series
     data for a specific trial, which is essential for determining muscle activation
     timing and amplitude during gait cycles.
+
+    Args:
+        trial: Optional trial identifier. When provided, loads emg_<trial>.json
+            (falling back to emg_data.json if absent). When None, loads the
+            session-level emg_data.json directly. The MCP resource
+            qtm://sessions/{patient_id}/{session_date}/emg invokes this with
+            trial=None; clients that need a specific trial should call the
+            underlying tool with trial="<id>" explicitly.
     """
     settings = get_settings()
     
@@ -24,8 +34,11 @@ async def get_emg_signals(patient_id: str, session_date: str, trial: str) -> dic
     base_dir = await get_project_patient_dir()
     patient_path = await safe_patient_path(base_dir, patient_id, session_date)
     
-    candidate_file = patient_path / f"emg_{trial}.json"
-    if not candidate_file.exists():
+    if trial is not None:
+        candidate_file = patient_path / f"emg_{trial}.json"
+        if not candidate_file.exists():
+            candidate_file = patient_path / "emg_data.json"
+    else:
         candidate_file = patient_path / "emg_data.json"
         
     try:
@@ -36,11 +49,21 @@ async def get_emg_signals(patient_id: str, session_date: str, trial: str) -> dic
         logger.error(f"Failed to load EMG data for {patient_id}/{session_date}/{trial}: {e}")
         raise RuntimeError(f"Could not load EMG data: {e}")
 
-async def get_force_plate_data(patient_id: str, session_date: str, trial: str) -> dict:
+async def get_force_plate_data(
+    patient_id: str, session_date: str, trial: str | None = None
+) -> dict:
     """Returns Fx, Fy, Fz, and CoP arrays from force plates.
     
     Use this tool to obtain ground reaction forces and center of pressure
     data necessary for inverse dynamics calculations.
+
+    Args:
+        trial: Optional trial identifier. When provided, loads
+            force_plates_<trial>.json (falling back to force_plate_data.json
+            if absent). When None, loads the session-level
+            force_plate_data.json directly. The MCP resource
+            qtm://sessions/{patient_id}/{session_date}/force_plates invokes
+            this with trial=None.
     """
     settings = get_settings()
     
@@ -49,8 +72,11 @@ async def get_force_plate_data(patient_id: str, session_date: str, trial: str) -
     base_dir = await get_project_patient_dir()
     patient_path = await safe_patient_path(base_dir, patient_id, session_date)
     
-    candidate_file = patient_path / f"force_plates_{trial}.json"
-    if not candidate_file.exists():
+    if trial is not None:
+        candidate_file = patient_path / f"force_plates_{trial}.json"
+        if not candidate_file.exists():
+            candidate_file = patient_path / "force_plate_data.json"
+    else:
         candidate_file = patient_path / "force_plate_data.json"
         
     try:

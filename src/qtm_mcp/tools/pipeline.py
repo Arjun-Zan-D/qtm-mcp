@@ -163,18 +163,35 @@ async def fetch_clinical_metrics(patient_id: str, session_date: str) -> dict:
     from qtm_mcp.utils import confined_file
     settings = get_settings()
 
+    # Distinguish two FileNotFoundError flavours that confined_file() can raise:
+    #   1. The configured projects_root itself does not exist on this machine
+    #      → operator/config problem, surface as RuntimeError.
+    #   2. The expected per-patient report file is missing inside a perfectly
+    #      valid projects_root → normal "not yet processed" condition, surface
+    #      as FileNotFoundError so the agent can prompt for pipeline execution.
+    projects_root_path = Path(settings.projects_root).expanduser()
+    if not projects_root_path.exists():
+        raise RuntimeError(
+            f"Configuration error: QTM_PROJECTS_ROOT "
+            f"'{settings.projects_root}' does not exist on this machine."
+        )
+
     try:
         metrics_file = confined_file(
-            Path(settings.projects_root),
+            projects_root_path,
             patient_dir / f"{patient_id}_clinical_report.json",
             {".json"},
         )
-    except FileNotFoundError as e:
-        if str(Path(settings.projects_root).expanduser()) in str(e):
-            raise RuntimeError(f"Configuration error: QTM_PROJECTS_ROOT '{settings.projects_root}' does not exist on this machine.")
-        raise FileNotFoundError(f"Clinical report not found for {patient_id}. Expected {patient_id}_clinical_report.json in {patient_dir.as_posix()}.")
-    except Exception as e:
-        raise FileNotFoundError(f"Clinical report not found or unconfined: {e}")
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"Clinical report not found for {patient_id}. "
+            f"Expected {patient_id}_clinical_report.json in {patient_dir.as_posix()}."
+        )
+    except PermissionError as e:
+        # confined_file raises PermissionError if the file escapes the jail
+        raise PermissionError(f"Clinical report path failed boundary check: {e}")
+    except ValueError as e:
+        raise FileNotFoundError(f"Clinical report invalid or wrong type: {e}")
 
     def _read_json(path):
         import os

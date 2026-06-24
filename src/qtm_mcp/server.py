@@ -1,7 +1,6 @@
 import sys
 import logging
 from contextlib import asynccontextmanager
-import httpx
 
 from mcp.server.fastmcp import FastMCP
 from qtm_mcp.config import get_settings
@@ -21,9 +20,15 @@ logger = logging.getLogger("Universal_QTM_Server")
 
 @asynccontextmanager
 async def server_lifespan(server: FastMCP):
-    """Lifespan context manager to handle shared resources like httpx clients."""
-    settings = get_settings()
-    # E.g., we could bind a shared httpx client to the server context here
+    """Lifespan context manager for shared server resources.
+
+    Eagerly resolves Settings on startup so any malformed `.env` or
+    missing environment variable surfaces immediately at boot rather
+    than on the first tool invocation. Future shared resources (e.g.
+    a pooled httpx.AsyncClient or qtm-rt connection) can be bound to
+    the server context here.
+    """
+    get_settings()  # populate lru_cache & fail-fast on bad config
     yield
 
 def create_server() -> FastMCP:

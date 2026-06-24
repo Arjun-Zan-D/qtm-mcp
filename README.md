@@ -17,23 +17,31 @@ A professional, modular Model Context Protocol (MCP) server that acts as a bridg
 
 ```
 qtm-mcp/
-├── pyproject.toml             # Modern pyproject configuration (Hatchling)
-├── README.md                  # Project documentation
-├── CONTRIBUTING.md            # Contributor guidelines
+├── pyproject.toml                  # Modern pyproject configuration (Hatchling)
+├── README.md                       # Project documentation
+├── CONTRIBUTING.md                 # Contributor guidelines
+├── DISCLAIMER.md                   # Clinical / medical-device disclaimer
 ├── src/
 │   └── qtm_mcp/
-│       ├── __init__.py        # Package exports
-│       ├── base.py            # Shared FastMCP instantiation (prevents circular imports)
-│       ├── server.py          # Main CLI runner and tool registry
-│       ├── config.py          # Pydantic-settings config schema
-│       ├── utils.py           # Directory resolution utilities
-│       └── tools/             # Split tool logic
+│       ├── __init__.py             # Package exports
+│       ├── server.py               # CLI runner, FastMCP server, explicit tool registry
+│       ├── config.py               # Pydantic-settings configuration schema
+│       ├── utils.py                # Path-jail, input validation, project resolution
+│       └── tools/                  # Modular tool implementations
 │           ├── __init__.py
-│           ├── file_ops.py    # Session loading tools
-│           ├── realtime.py    # qtm-rt real-time streams
-│           ├── video.py       # OpenCV keyframe extraction & stick-figure drawing
-│           └── pipeline.py    # Subprocess execution & clinical reports
+│           ├── file_ops.py         # Session loading via QTM REST API
+│           ├── realtime.py         # qtm-rt 3D / 6D / analog / force streams
+│           ├── video.py            # OpenCV keyframe extraction
+│           └── pipeline.py         # Subprocess wrappers + clinical-metric loader
+└── tests/                          # pytest-asyncio + pytest-mock suite
 ```
+
+> Planned tool modules on the roadmap (not yet implemented):
+> `health.py` (hardware status & calibration), `telemetry.py` (analog/EMG
+> signal processing), `biomechanics.py` (kinematics & anthropometrics),
+> `analytics.py` (ML segmentation), `clinical_output.py` (FHIR + PDF
+> reporting). Contributions following the pattern in `CONTRIBUTING.md`
+> are welcome.
 
 ---
 
@@ -126,9 +134,15 @@ async with stdio_client(server_params) as (read, write):
 
 If you want to add new tools to the biomechanical workflow:
 1. Create a Python module inside the `src/qtm_mcp/tools/` folder.
-2. Import the shared `mcp` instance: `from qtm_mcp.base import mcp`.
-3. Declare tools using `@mcp.tool()`.
-4. Import your new module inside `src/qtm_mcp/server.py` so the decorator registers on startup.
+2. Define each tool as a plain `async def` function with a clear clinical
+   docstring (LLMs read these at runtime to decide when to invoke the tool).
+3. Register the function explicitly inside `create_server()` in
+   `src/qtm_mcp/server.py` via `server.tool()(your_module.your_tool)`.
+4. Wrap any optional dependency (e.g. `cv2`, `qtm_rt`, `scipy`) in a
+   `try/except ImportError` block at module level and provide a simulated
+   fallback so tools remain testable when hardware/SDKs are absent.
+5. Add `pytest-asyncio` tests under `tests/` covering the happy path,
+   input-validation rejection, and the hardware-offline fallback.
 
 ---
 

@@ -84,9 +84,31 @@ class TestInputValidation:
 
 class TestFetchQtmData:
     @pytest.mark.asyncio
-    async def test_raises_not_implemented(self):
+    async def test_returns_simulated_data_when_sdk_missing(self, mocker):
+        """When the qtm_rt SDK is not installed (typical CI / dev box),
+        the tool MUST return a marked-simulated payload rather than crash —
+        per CONTRIBUTING.md guideline #1 (hardware-mock fallback)."""
+        mocker.patch("qtm_mcp.tools.realtime.QTM_RT_AVAILABLE", False)
+        result = await fetch_qtm_data(["3d", "analog"], 2)
+        assert result["status"] == "Success"
+        assert result["is_simulated"] is True
+        assert "3d" in result["data"]
+        assert "analog" in result["data"]
+        assert len(result["data"]["3d"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_raises_not_implemented_when_sdk_present(self, mocker):
+        """When qtm_rt IS installed we currently have no live-streaming
+        implementation, so the tool must fail loudly rather than silently
+        return stale data."""
+        mocker.patch("qtm_mcp.tools.realtime.QTM_RT_AVAILABLE", True)
         with pytest.raises(NotImplementedError):
             await fetch_qtm_data(["3d"], 2)
+
+    @pytest.mark.asyncio
+    async def test_empty_data_types_raises(self):
+        with pytest.raises(ValueError, match="At least one data type"):
+            await fetch_qtm_data([], 2)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

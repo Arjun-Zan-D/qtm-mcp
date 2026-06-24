@@ -29,20 +29,18 @@ from qtm_mcp.utils import (
 
 logger = logging.getLogger("Universal_QTM_Server.pipeline")
 
-def _generate_default_ik_setup(xml_path: Path, patient_id: str):
-    xml_content = f"""<?xml version="1.0" encoding="UTF-8" ?>
-<OpenSimDocument Version="40000">
-    <InverseKinematicsTool>
-        <!-- Default auto-generated template for {patient_id} -->
-        <model_file>placeholder_model.osim</model_file>
-        <marker_file>placeholder_markers.trc</marker_file>
-        <coordinate_file>placeholder_coordinates.mot</coordinate_file>
-        <time_range>0 1</time_range>
-    </InverseKinematicsTool>
-</OpenSimDocument>"""
-    xml_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(xml_path, "w") as f:
-        f.write(xml_content)
+# NOTE: An auto-generated IK template used to live here. It wrote a
+# placeholder OpenSim XML pointing at non-existent files
+# ('placeholder_model.osim', 'placeholder_markers.trc',
+# 'placeholder_coordinates.mot'), then handed it to opensim-cmd. The
+# opensim-cmd run would always fail (missing inputs), but more
+# dangerously, if a clinician didn't read the warning carefully, they
+# could think the IK *ran* on real data. For a clinical motion-
+# analysis pipeline that's a data-integrity hazard.
+#
+# We now require Setup_IK_<patient>.xml to exist before invoking
+# opensim-cmd, and raise a clear FileNotFoundError otherwise. See
+# trigger_processing_pipeline below.
 
 
 async def trigger_processing_pipeline(
@@ -136,8 +134,18 @@ async def trigger_processing_pipeline(
         os.makedirs(log_dir, exist_ok=True)
 
         if not setup_xml.exists():
-            _generate_default_ik_setup(setup_xml, patient_id)
-            warning_msg = "default_template_used"
+            # Fail loudly instead of silently writing a placeholder template.
+            # A placeholder XML would reference non-existent model / marker /
+            # coordinate files; opensim-cmd would error out anyway, but the
+            # warning was easy for clinicians to miss -- creating a real risk
+            # of mistaking a no-op for a successful IK run.
+            raise FileNotFoundError(
+                f"OpenSim IK setup not found at {setup_xml.as_posix()}. "
+                f"Create a Setup_IK_{patient_id}.xml in {opensim_root.as_posix()} "
+                f"that references the correct .osim model, .trc marker file and "
+                f".mot coordinate file for this patient before invoking the "
+                f"opensim pipeline."
+            )
 
         command = [
             "opensim-cmd",

@@ -440,22 +440,53 @@ class TestFetchQtmData:
 
 class TestOpenSimDynamicPath:
     @pytest.mark.asyncio
-    async def test_auto_generate_ik_template(self, mocker, tmp_path):
+    async def test_missing_ik_setup_raises_file_not_found(self, mocker, tmp_path):
+        """The opensim pipeline now refuses to auto-generate a placeholder
+        Setup_IK_<patient>.xml. A real one (referencing the real .osim
+        model, .trc markers and .mot coordinates for the patient) must be
+        supplied by the clinician. Silently writing a placeholder that
+        only points at non-existent files was a clinical data-integrity
+        hazard (B10)."""
         from qtm_mcp.tools.pipeline import trigger_processing_pipeline
-        mocker.patch("qtm_mcp.tools.pipeline.get_project_patient_dir", return_value=str(tmp_path / "Patient_Data"))
-        
+        mocker.patch(
+            "qtm_mcp.tools.pipeline.get_project_patient_dir",
+            return_value=str(tmp_path / "Patient_Data"),
+        )
+
+        # asyncio.create_subprocess_exec must NOT be called when the setup
+        # XML is missing -- the pipeline should bail out before that.
+        spawned = mocker.patch("asyncio.create_subprocess_exec")
+
+        with pytest.raises(FileNotFoundError, match="Setup_IK_PT123.xml"):
+            await trigger_processing_pipeline("PT123", "2024-01-01", "opensim")
+
+        spawned.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_existing_ik_setup_is_invoked(self, mocker, tmp_path):
+        """When the clinician has supplied a real Setup_IK_<patient>.xml,
+        the pipeline invokes opensim-cmd against it (no placeholder
+        generation)."""
+        from qtm_mcp.tools.pipeline import trigger_processing_pipeline
+        mocker.patch(
+            "qtm_mcp.tools.pipeline.get_project_patient_dir",
+            return_value=str(tmp_path / "Patient_Data"),
+        )
+
+        opensim_dir = tmp_path / "OpenSim"
+        opensim_dir.mkdir()
+        setup_xml = opensim_dir / "Setup_IK_PT123.xml"
+        setup_xml.write_text("<OpenSimDocument/>")
+
         mock_process = mocker.AsyncMock()
         mock_process.returncode = 0
         mock_process.communicate.return_value = (b"done", b"")
         mocker.patch("asyncio.create_subprocess_exec", return_value=mock_process)
-        
+
         res = await trigger_processing_pipeline("PT123", "2024-01-01", "opensim")
         assert res["status"] == "Success"
-        assert res["warning"] == "default_template_used"
-        
-        opensim_dir = tmp_path / "OpenSim"
-        xml = opensim_dir / "Setup_IK_PT123.xml"
-        assert xml.exists()
+        # No 'warning' field expected -- there's no placeholder anymore.
+        assert "warning" not in res
 
 class TestStartStopCaptureRequests:
     @pytest.mark.asyncio

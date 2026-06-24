@@ -9,26 +9,42 @@ logger = logging.getLogger("Universal_QTM_Server.realtime")
 MAX_FRAMES = 120
 FrameCount = Annotated[int, Field(ge=1, le=MAX_FRAMES)]
 
+
+async def _collect_frames(components: list[str], frames: int) -> list[dict]:
+    """Open a single RT stream subscription and collect *frames* packets.
+
+    Previously, each stream_* tool looped range(frames) calling
+    manager.get_rt_frame() once per iteration, which opened a fresh stream,
+    waited for one packet, then stopped the stream -- per frame. That meant
+    O(N) stream setup/teardown round-trips against the QTM RT TCP socket.
+
+    By delegating to manager.stream_n_frames(...) we open the stream once,
+    drain N packets, then stop the stream. The per-frame translation is
+    handled inside connection.py.
+    """
+    manager = get_connection_manager()
+    return await manager.stream_n_frames(components=components, n_frames=frames)
+
+
 async def stream_6dof_data(body_names: Optional[list[str]] = None, frames: FrameCount = 10) -> dict:
     """Streams 6DOF rigid body position and rotation data from the live QTM RT feed."""
     logger.info(f"Invoking stream_6dof_data for {frames} frames")
-    manager = get_connection_manager()
-    
+    try:
+        packets = await _collect_frames(components=["6d"], frames=frames)
+    except Exception as e:
+        logger.error(f"Error fetching 6DOF stream: {e}")
+        return {"status": "error", "code": "RT_CONNECTION_FAILED", "message": str(e)}
+
     frames_data = []
-    for _ in range(frames):
-        try:
-            frame_dict = await manager.get_rt_frame(components=["6d"])
-            if frame_dict and "6d" in frame_dict:
-                bodies = frame_dict["6d"]
-                if body_names:
-                    bodies = [b for b in bodies if b["name"] in body_names]
-                frames_data.append({
-                    "frame_number": frame_dict.get("frame_number"),
-                    "6d": bodies
-                })
-        except Exception as e:
-            logger.error(f"Error fetching 6DOF frame: {e}")
-            return {"status": "error", "code": "RT_CONNECTION_FAILED", "message": str(e)}
+    for frame_dict in packets:
+        if "6d" in frame_dict:
+            bodies = frame_dict["6d"]
+            if body_names:
+                bodies = [b for b in bodies if b["name"] in body_names]
+            frames_data.append({
+                "frame_number": frame_dict.get("frame_number"),
+                "6d": bodies,
+            })
 
     return {"status": "success", "frames_collected": len(frames_data), "data": frames_data}
 
@@ -36,24 +52,18 @@ async def stream_6dof_data(body_names: Optional[list[str]] = None, frames: Frame
 async def stream_3d_markers(marker_names: Optional[list[str]] = None, frames: FrameCount = 10) -> dict:
     """Streams 3D marker coordinates from the live QTM RT feed."""
     logger.info(f"Invoking stream_3d_markers for {frames} frames")
-    manager = get_connection_manager()
-    
-    frames_data = []
-    for _ in range(frames):
-        try:
-            frame_dict = await manager.get_rt_frame(components=["3d"])
-            if frame_dict and "3d" in frame_dict:
-                markers = frame_dict["3d"]
-                # If marker_names provided, we would need to know the index mapping to filter them.
-                # RT protocol just gives an array of points without labels in the data packet.
-                # Labels are in parameters XML. For now, we return all points.
-                frames_data.append({
-                    "frame_number": frame_dict.get("frame_number"),
-                    "3d": markers
-                })
-        except Exception as e:
-            logger.error(f"Error fetching 3D frame: {e}")
-            return {"status": "error", "code": "RT_CONNECTION_FAILED", "message": str(e)}
+    try:
+        packets = await _collect_frames(components=["3d"], frames=frames)
+    except Exception as e:
+        logger.error(f"Error fetching 3D stream: {e}")
+        return {"status": "error", "code": "RT_CONNECTION_FAILED", "message": str(e)}
+
+    # Note: marker_names filtering is not applied because the RT 3D packet
+    # contains points without labels; labels live in the parameters XML.
+    frames_data = [
+        {"frame_number": fd.get("frame_number"), "3d": fd.get("3d", [])}
+        for fd in packets if "3d" in fd
+    ]
 
     return {"status": "success", "frames_collected": len(frames_data), "data": frames_data}
 
@@ -61,24 +71,19 @@ async def stream_3d_markers(marker_names: Optional[list[str]] = None, frames: Fr
 async def stream_analog_data(channel_indices: Optional[list[int]] = None, frames: FrameCount = 10) -> dict:
     """Streams analog (EMG/force) channel data from QTM RT."""
     logger.info(f"Invoking stream_analog_data for {frames} frames")
-    manager = get_connection_manager()
-    
-    frames_data = []
-    for _ in range(frames):
-        try:
-            frame_dict = await manager.get_rt_frame(components=["analog"])
-            if frame_dict and "analog" in frame_dict:
-                analog = frame_dict["analog"]
-                if channel_indices and hasattr(analog, "__getitem__"):
-                    # Basic filtering if it's a list-like structure
-                    pass # Proper indexing depends on the qtm-rt packet format
-                frames_data.append({
-                    "frame_number": frame_dict.get("frame_number"),
-                    "analog": analog
-                })
-        except Exception as e:
-            logger.error(f"Error fetching analog frame: {e}")
-            return {"status": "error", "code": "RT_CONNECTION_FAILED", "message": str(e)}
+    try:
+        packets = await _collect_frames(components=["analog"], frames=frames)
+    except Exception as e:
+        logger.error(f"Error fetching analog stream: {e}")
+        return {"status": "error", "code": "RT_CONNECTION_FAILED", "message": str(e)}
+
+    # channel_indices filtering would require knowledge of the qtm_rt analog
+    # packet layout (which varies by configuration), so we expose the raw
+    # analog payload and let downstream tools slice it.
+    frames_data = [
+        {"frame_number": fd.get("frame_number"), "analog": fd.get("analog", [])}
+        for fd in packets if "analog" in fd
+    ]
 
     return {"status": "success", "frames_collected": len(frames_data), "data": frames_data}
 
@@ -86,31 +91,28 @@ async def stream_analog_data(channel_indices: Optional[list[int]] = None, frames
 async def stream_skeleton_data(skeleton_name: Optional[str] = None, frames: FrameCount = 10) -> dict:
     """Streams skeleton joint data from QTM RT (if skeleton solving is active)."""
     logger.info(f"Invoking stream_skeleton_data for {frames} frames")
-    manager = get_connection_manager()
-    
+    try:
+        packets = await _collect_frames(components=["skeleton"], frames=frames)
+    except Exception as e:
+        logger.error(f"Error fetching skeleton stream: {e}")
+        return {"status": "error", "code": "RT_CONNECTION_FAILED", "message": str(e)}
+
     frames_data = []
-    for _ in range(frames):
-        try:
-            frame_dict = await manager.get_rt_frame(components=["skeleton"])
-            if not frame_dict:
-                continue
-                
-            if "skeleton_error" in frame_dict:
-                return {
-                    "status": "error", 
-                    "code": "SKELETON_UNSUPPORTED", 
-                    "message": f"Skeleton streaming not supported or no skeleton active: {frame_dict['skeleton_error']}"
-                }
-                
-            if "skeleton" in frame_dict:
-                skeletons = frame_dict["skeleton"]
-                frames_data.append({
-                    "frame_number": frame_dict.get("frame_number"),
-                    "skeleton": skeletons
-                })
-        except Exception as e:
-            logger.error(f"Error fetching skeleton frame: {e}")
-            return {"status": "error", "code": "RT_CONNECTION_FAILED", "message": str(e)}
+    for frame_dict in packets:
+        if "skeleton_error" in frame_dict:
+            return {
+                "status": "error",
+                "code": "SKELETON_UNSUPPORTED",
+                "message": (
+                    "Skeleton streaming not supported or no skeleton active: "
+                    f"{frame_dict['skeleton_error']}"
+                ),
+            }
+        if "skeleton" in frame_dict:
+            frames_data.append({
+                "frame_number": frame_dict.get("frame_number"),
+                "skeleton": frame_dict["skeleton"],
+            })
 
     return {"status": "success", "frames_collected": len(frames_data), "data": frames_data}
 
@@ -135,7 +137,7 @@ async def fetch_qtm_data() -> dict:
             return {
                 "status": "error", 
                 "code": "RT_TIMEOUT", 
-                "message": "Timed out waiting for RT frame."
+                "message": "Timed out waiting for RT frame.",
             }
         
         # Build combined response
@@ -152,7 +154,7 @@ async def fetch_qtm_data() -> dict:
             
         return {
             "status": "success",
-            "data": data
+            "data": data,
         }
     except Exception as e:
         logger.error(f"Error in fetch_qtm_data: {e}")

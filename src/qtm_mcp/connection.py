@@ -191,86 +191,126 @@ class QTMConnectionManager:
             
             raise ConnectionError("All RT reconnection attempts exhausted")
 
-    async def get_rt_frame(self, components: list[str], timeout: float = 2.0) -> Optional[dict]:
-        """Concurrent-safe frame fetcher.
-        
-        Hooks into the stream, grabs the latest frame of the requested components,
-        and unhooks without breaking the connection for other requests.
+    @staticmethod
+    def _packet_to_dict(packet, components: list[str]) -> dict:
+        """Translate a qtm_rt packet into our flat dict format.
+
+        Extracted so both the single-frame and N-frame paths can reuse it
+        without duplicating the per-component try/except boilerplate.
         """
+        frame_dict: dict = {"frame_number": packet.framenumber}
+
+        if "3d" in components:
+            try:
+                _, markers = packet.get_3d_markers()
+                frame_dict["3d"] = (
+                    [{"x": m.x, "y": m.y, "z": m.z} for m in markers] if markers else []
+                )
+            except Exception:
+                frame_dict["3d"] = []
+
+        if "6d" in components:
+            try:
+                _, bodies = packet.get_6d()
+                if bodies:
+                    frame_dict["6d"] = [
+                        {
+                            "name": name,
+                            "position": list(pos) if pos is not None else [],
+                            "rotation": [list(row) for row in rot] if rot is not None else [],
+                        }
+                        for name, pos, rot in bodies
+                    ]
+                else:
+                    frame_dict["6d"] = []
+            except Exception:
+                frame_dict["6d"] = []
+
+        if "analog" in components:
+            try:
+                _, analog = packet.get_analog()
+                frame_dict["analog"] = analog if analog is not None else []
+            except Exception:
+                frame_dict["analog"] = []
+
+        if "force" in components:
+            try:
+                _, force = packet.get_force()
+                frame_dict["force"] = force if force is not None else []
+            except Exception:
+                frame_dict["force"] = []
+
+        if "skeleton" in components:
+            try:
+                _, skeletons = packet.get_skeleton()
+                frame_dict["skeleton"] = skeletons if skeletons is not None else []
+            except Exception as e:
+                frame_dict["skeleton_error"] = str(e)
+                frame_dict["skeleton"] = []
+
+        return frame_dict
+
+    async def stream_n_frames(
+        self, components: list[str], n_frames: int, timeout: float = 5.0
+    ) -> list[dict]:
+        """Collect *n_frames* packets in one stream subscription.
+
+        Previously, callers wanting N frames invoked get_rt_frame() N times,
+        which opened a fresh stream, waited for one packet, then closed the
+        stream -- per frame. That's O(N) setup/teardown round-trips against
+        the QTM RT TCP connection.
+
+        This method opens the stream once, drains N packets, then stops the
+        stream. Per-packet timeout is enforced via the supplied *timeout*
+        argument (applied to each packet wait, not the whole call).
+        """
+        if n_frames < 1:
+            return []
         conn = await self.get_rt()
-        
-        frame_dict = {}
-        done_event = asyncio.Event()
+
+        frames: list[dict] = []
+        loop = asyncio.get_running_loop()
+        target = n_frames
+
+        # We need a queue the qtm_rt callback (sync) can push into.
+        pending: asyncio.Queue = asyncio.Queue()
 
         def on_packet(packet):
-            frame_dict["frame_number"] = packet.framenumber
-            
-            if "3d" in components:
-                try:
-                    _, markers = packet.get_3d_markers()
-                    frame_dict["3d"] = [{"x": m.x, "y": m.y, "z": m.z} for m in markers] if markers else []
-                except Exception:
-                    frame_dict["3d"] = []
-
-            if "6d" in components:
-                try:
-                    _, bodies = packet.get_6d()
-                    if bodies:
-                        frame_dict["6d"] = [
-                            {
-                                "name": name,
-                                "position": list(pos) if pos is not None else [],
-                                "rotation": [list(row) for row in rot] if rot is not None else []
-                            }
-                            for name, pos, rot in bodies
-                        ]
-                    else:
-                        frame_dict["6d"] = []
-                except Exception:
-                    frame_dict["6d"] = []
-
-            if "analog" in components:
-                try:
-                    _, analog = packet.get_analog()
-                    frame_dict["analog"] = analog if analog is not None else []
-                except Exception:
-                    frame_dict["analog"] = []
-
-            if "force" in components:
-                try:
-                    _, force = packet.get_force()
-                    frame_dict["force"] = force if force is not None else []
-                except Exception:
-                    frame_dict["force"] = []
-                    
-            if "skeleton" in components:
-                try:
-                    _, skeletons = packet.get_skeleton()
-                    # Skeleton format can vary, just extract the dict
-                    frame_dict["skeleton"] = skeletons if skeletons is not None else []
-                except Exception as e:
-                    # Capture graceful fallback error if skeleton fails
-                    frame_dict["skeleton_error"] = str(e)
-                    frame_dict["skeleton"] = []
-
-            done_event.set()
+            try:
+                loop.call_soon_threadsafe(
+                    pending.put_nowait, self._packet_to_dict(packet, components)
+                )
+            except Exception as e:
+                logger.error(f"Failed to enqueue RT packet: {e}")
 
         try:
-            # We start the stream. If multiple tools call this, qtm_rt handles multiple streams
-            # or overrides components. We just grab one packet.
             await conn.stream_frames(components=components, on_packet=on_packet)
-            try:
-                await asyncio.wait_for(done_event.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
-                logger.warning(f"Timeout waiting for RT frame with components {components}")
-                return None
+            while len(frames) < target:
+                try:
+                    frame_dict = await asyncio.wait_for(pending.get(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"Timeout waiting for RT frame {len(frames) + 1}/{target} "
+                        f"with components {components}"
+                    )
+                    break
+                frames.append(frame_dict)
         finally:
             try:
                 await conn.stream_frames_stop()
             except Exception as e:
                 logger.error(f"Error stopping stream: {e}")
 
-        return frame_dict
+        return frames
+
+    async def get_rt_frame(self, components: list[str], timeout: float = 2.0) -> Optional[dict]:
+        """Concurrent-safe single-frame fetcher.
+
+        Convenience wrapper around stream_n_frames(n=1). Kept for backwards
+        compatibility with callers that want exactly one snapshot.
+        """
+        frames = await self.stream_n_frames(components, n_frames=1, timeout=timeout)
+        return frames[0] if frames else None
 
 # Singleton instance
 _manager: Optional[QTMConnectionManager] = None

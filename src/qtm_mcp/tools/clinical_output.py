@@ -192,13 +192,16 @@ async def export_c3d(patient_id: str, session_date: str) -> dict:
         }
 
     try:
-        import c3d
+        import c3d  # type: ignore[import-not-found]
+        import numpy as np  # c3d's transitive dependency
         _HAS_C3D = True
     except ImportError:
         _HAS_C3D = False
 
-    if not _HAS_C3D:
-        # Build JSON export payload
+    # Build a JSON-export fallback once -- we route here both when the c3d
+    # library is unavailable AND when the marker payload doesn't match the
+    # strict C3D frame schema (see below).
+    async def _json_fallback(note: str) -> dict:
         export_payload = {
             "patient_id": patient_id,
             "session_date": session_date,
@@ -214,26 +217,86 @@ async def export_c3d(patient_id: str, session_date: str) -> dict:
 
         await asyncio.to_thread(_write_export_json, export_path, export_payload)
         logger.info(f"Export written for patient {hashed_id} at {export_path}")
-
         return {
             "status": "success",
             "patient_id": patient_id,
             "session_date": session_date,
             "export_path": str(export_path),
             "format": "json",
-            "note": "Exported as JSON (C3D binary requires c3d library)",
+            "note": note,
         }
 
-    # Build C3D writer with marker data
-    writer = c3d.Writer()
-    markers = marker_data["markers"]
-    marker_labels = list(markers.keys())
-    
-    c3d_path = patient_path / f"{patient_id}_export.c3d"
+    if not _HAS_C3D:
+        return await _json_fallback("Exported as JSON (C3D binary requires c3d library)")
 
-    def _write_c3d():
+    # ─── Strict C3D input contract ────────────────────────────────────────
+    # The c3d library's binary writer requires per-frame (X, Y, Z) markers.
+    # Expected schema:
+    #     marker_data["markers"] = {LABEL: [[x, y, z], [x, y, z], ...], ...}
+    # Optional:
+    #     marker_data["frame_rate"] = float (Hz, default 100.0)
+    #
+    # Anything else (flat lists, gap markers, mixed shapes, mismatched
+    # frame counts across labels) is silently rerouted to the JSON
+    # fallback rather than producing a malformed/empty C3D. Writing an
+    # incorrect C3D is a clinical-data-integrity hazard, so we are strict.
+    markers = marker_data["markers"]
+    if not isinstance(markers, dict) or not markers:
+        return await _json_fallback(
+            "Exported as JSON (no marker trajectories suitable for C3D binary export)"
+        )
+
+    marker_labels = list(markers.keys())
+
+    def _frames_from_markers() -> "list | None":
+        """Return list of (Nx5 numpy points, 0x1 numpy analog) tuples,
+        or None if the schema isn't strict per-frame 3-vectors."""
+        frame_counts: list[int] = []
+        for label in marker_labels:
+            traj = markers[label]
+            if not isinstance(traj, list) or not traj:
+                return None
+            for sample in traj:
+                if not (isinstance(sample, (list, tuple)) and len(sample) == 3):
+                    return None
+                for coord in sample:
+                    if not isinstance(coord, (int, float)) or coord is None:
+                        return None
+            frame_counts.append(len(traj))
+        # All labels must share the same number of frames.
+        if len(set(frame_counts)) != 1:
+            return None
+        n_frames = frame_counts[0]
+        n_markers = len(marker_labels)
+        frames = []
+        for f_idx in range(n_frames):
+            points = np.zeros((n_markers, 5), dtype=np.float32)
+            for m_idx, label in enumerate(marker_labels):
+                x, y, z = markers[label][f_idx]
+                points[m_idx, 0] = float(x)
+                points[m_idx, 1] = float(y)
+                points[m_idx, 2] = float(z)
+                # residual=0, camera_mask=0 (defaults are fine for export)
+            analog = np.zeros((0, 1), dtype=np.float32)
+            frames.append((points, analog))
+        return frames
+
+    frames = await asyncio.to_thread(_frames_from_markers)
+    if frames is None:
+        return await _json_fallback(
+            "Exported as JSON (marker schema not C3D-compatible: expected "
+            "per-frame [x, y, z] lists with equal frame counts across all labels)"
+        )
+
+    c3d_path = patient_path / f"{patient_id}_export.c3d"
+    frame_rate = float(marker_data.get("frame_rate", 100.0))
+
+    def _write_c3d() -> None:
+        writer = c3d.Writer(point_rate=frame_rate)
         writer.set_point_labels(marker_labels)
-        with open(c3d_path, 'wb') as f:
+        writer.add_frames(frames)
+        c3d_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(c3d_path, "wb") as f:
             writer.write(f)
 
     await asyncio.to_thread(_write_c3d)
@@ -245,6 +308,8 @@ async def export_c3d(patient_id: str, session_date: str) -> dict:
         "session_date": session_date,
         "export_path": str(c3d_path),
         "format": "c3d",
+        "frames": len(frames),
+        "markers": len(marker_labels),
     }
 
 async def push_to_ehr(patient_id: str, session_date: str, fhir_endpoint: str) -> dict:

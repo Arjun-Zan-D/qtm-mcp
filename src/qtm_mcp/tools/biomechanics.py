@@ -43,13 +43,17 @@ async def compute_joint_angles(patient_id: str, session_date: str, joint: str) -
     Use this tool to get the calculated 3D kinematic curves for clinical review.
     Joints can be 'knee', 'hip', 'ankle', 'pelvis', etc.
     """
-    settings = get_settings()
-    
     # Security checks
     validate_patient_inputs(patient_id, session_date)
-    patient_path = await safe_patient_path(settings.projects_root, patient_id, session_date)
-    
+    # Resolve the project's Patient_Data root dynamically (Scripting API ->
+    # REST -> local config) and confine the session path to it, matching
+    # every other tool's jail. Previously this used settings.projects_root
+    # directly, which is the *top-level* QTM projects directory, not the
+    # active project's Patient_Data dir -- so paths under the real session
+    # directory would have been rejected (or, worse, a sibling-project's
+    # data would have been considered in-jail).
     base_dir = await get_project_patient_dir()
+    patient_path = await safe_patient_path(base_dir, patient_id, session_date)
     hashed_id = hashlib.sha256(patient_id.encode()).hexdigest()[:12]
 
     candidate_file = patient_path / f"joint_angles_{joint}.json"
@@ -77,13 +81,12 @@ async def compute_cop_trajectory(patient_id: str, session_date: str) -> dict:
     Use this tool to evaluate balance, weight transfer symmetry, and foot strike
     patterns during the gait cycle.
     """
-    settings = get_settings()
-    
     # Security checks
     validate_patient_inputs(patient_id, session_date)
-    patient_path = await safe_patient_path(settings.projects_root, patient_id, session_date)
-    
+    # Use the dynamically-resolved Patient_Data root as the jail (see
+    # compute_joint_angles for the same reasoning).
     base_dir = await get_project_patient_dir()
+    patient_path = await safe_patient_path(base_dir, patient_id, session_date)
     hashed_id = hashlib.sha256(patient_id.encode()).hexdigest()[:12]
 
     candidate_file = patient_path / "cop_trajectory.json"

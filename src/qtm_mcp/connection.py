@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 from enum import Enum
 from typing import Optional
@@ -93,13 +94,24 @@ class QTMConnectionManager:
             await self._scripting_client.aclose()
         if self._rest_client:
             await self._rest_client.aclose()
-            
+
         if self._rt_conn and self.rt_connected:
             try:
-                self._rt_conn.disconnect()
+                # qtm_rt.QRTConnection.disconnect is synchronous in 3.x (it
+                # just calls transport.close()), but earlier and possibly
+                # future versions expose an async variant. Handle both
+                # forms so we never leak an unawaited coroutine.
+                result = self._rt_conn.disconnect()
+                if inspect.iscoroutine(result):
+                    await result
+                # Give the asyncio transport a tick to actually close before
+                # we drop our reference to it.
+                await asyncio.sleep(0)
             except Exception as e:
                 logger.warning(f"Error disconnecting RT: {e}")
             self.rt_connected = False
+            self._rt_conn = None
+            self.qtm_state = QTMState.DISCONNECTED
 
     # --- HTTP Clients ---
     

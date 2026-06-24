@@ -36,11 +36,19 @@ class QTMConnectionManager:
     def __init__(self, settings: Settings):
         self._settings = settings
         
-        # RT state
+        # RT state. _rt_conn / rt_connected / qtm_state are mutated from two
+        # contexts:
+        #   (a) get_rt() / _ensure_rt_connected() on the event loop, and
+        #   (b) the qtm_rt on_disconnect callback, which fires from a
+        #       background thread inside the qtm_rt library.
+        # To keep those two contexts coordinated, the disconnect callback
+        # re-enters the loop via loop.call_soon_threadsafe and the resulting
+        # mutation is gated by _reconnect_lock (same lock get_rt uses).
         self._rt_conn: Optional['qtm_rt.QRTConnection'] = None
         self.rt_connected: bool = False
         self.qtm_state: QTMState = QTMState.UNKNOWN
         self._reconnect_lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         
         # Scripting HTTP state
         self._scripting_client: Optional[httpx.AsyncClient] = None
@@ -53,6 +61,10 @@ class QTMConnectionManager:
     async def startup(self):
         """Initialise HTTP clients. RT connection is lazily initialised."""
         logger.info("Initialising HTTP clients in ConnectionManager.")
+        # Remember the loop we were started on so the on_disconnect callback
+        # (which runs in a qtm_rt-owned thread) can schedule its mutation
+        # back onto the same loop.
+        self._loop = asyncio.get_running_loop()
         
         # Scripting Client (Port 7979)
         self._scripting_client = httpx.AsyncClient(
@@ -104,10 +116,30 @@ class QTMConnectionManager:
     # --- RT Connection & Streaming ---
     
     def _on_rt_disconnect(self, reason: str):
+        """Invoked by qtm_rt from its I/O thread when the RT connection drops.
+
+        We must NOT mutate shared state here directly -- get_rt() reads the
+        same fields on the event loop, so we'd race. Instead, hop back onto
+        the event loop and apply the mutation under _reconnect_lock.
+        """
         logger.warning("RT disconnected: %s", reason)
-        self.rt_connected = False
-        self.qtm_state = QTMState.DISCONNECTED
-        self._rt_conn = None
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            # No loop available (we're being torn down). Best-effort mutation;
+            # the lock can't help us here.
+            self.rt_connected = False
+            self.qtm_state = QTMState.DISCONNECTED
+            self._rt_conn = None
+            return
+        loop.call_soon_threadsafe(
+            lambda: asyncio.ensure_future(self._apply_disconnect(), loop=loop)
+        )
+
+    async def _apply_disconnect(self) -> None:
+        async with self._reconnect_lock:
+            self.rt_connected = False
+            self.qtm_state = QTMState.DISCONNECTED
+            self._rt_conn = None
 
     async def _ensure_rt_connected(self) -> 'qtm_rt.QRTConnection':
         """Internal method to establish RT connection. MUST be called with _reconnect_lock held."""

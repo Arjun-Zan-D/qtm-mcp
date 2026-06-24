@@ -206,20 +206,37 @@ async def fetch_clinical_metrics(patient_id: str, session_date: str) -> dict:
     from qtm_mcp.utils import confined_file
     settings = get_settings()
 
+    # Probe QTM_PROJECTS_ROOT existence up front so a genuine misconfiguration
+    # is reported distinctly from the common "report not yet generated" case.
+    # (Previously, a substring match on the FileNotFoundError message would
+    # always trigger because the missing report path contains projects_root,
+    # misleading clinicians into thinking QTM was misconfigured.)
+    projects_root_path = Path(settings.projects_root).expanduser()
+    if not projects_root_path.exists():
+        raise RuntimeError(
+            f"Configuration error: QTM_PROJECTS_ROOT '{settings.projects_root}' "
+            f"does not exist on this machine."
+        )
+
+    expected_report = patient_dir / f"{patient_id}_clinical_report.json"
     try:
         metrics_file = await confined_file(
             Path(settings.projects_root),
-            patient_dir / f"{patient_id}_clinical_report.json",
+            expected_report,
             {".json"},
         )
     except PermissionError:
         logger.critical(f"SECURITY: Path traversal attempt blocked for patient {hashed_id}")
         raise
-    except FileNotFoundError as e:
-        if str(Path(settings.projects_root).expanduser()) in str(e):
-            raise RuntimeError(f"Configuration error: QTM_PROJECTS_ROOT '{settings.projects_root}' does not exist on this machine.")
-        raise FileNotFoundError(f"Clinical report not found for {patient_id}. Expected {patient_id}_clinical_report.json in {patient_dir.as_posix()}.")
+    except FileNotFoundError:
+        # Normal "clinician hasn't generated the report yet" condition.
+        raise FileNotFoundError(
+            f"Clinical report not found for {patient_id}. "
+            f"Expected {patient_id}_clinical_report.json in {patient_dir.as_posix()}."
+        )
     except ValueError as e:
+        # confined_file raises ValueError on suffix-allowlist or symlink rejection;
+        # surface as FileNotFoundError for the caller (the file isn't usable).
         raise FileNotFoundError(f"Clinical report not found: {e}")
 
     def _read_json(path):

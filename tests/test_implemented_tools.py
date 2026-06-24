@@ -360,9 +360,14 @@ class TestStartStopCaptureCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_breaker_returns_structured_error(self, mocker):
         from qtm_mcp.tools.health import start_stop_capture
-        mock_post = mocker.patch("qtm_mcp.tools.health.sync_requests.post")
-        mock_post.side_effect = Exception("Connection Refused")
-    
+        # start_stop_capture now uses the shared async httpx client; patch
+        # its .post coroutine to simulate a transport failure.
+        async def _raise(*_args, **_kwargs):
+            raise Exception("Connection Refused")
+        mock_client = mocker.Mock()
+        mock_client.post = _raise
+        mocker.patch("qtm_mcp.tools.health.get_shared_client", return_value=mock_client)
+
         result = await start_stop_capture("gait_trial_1", "start")
         assert result["status"] == "error"
         assert result["code"] == "UNKNOWN_ERROR"
@@ -456,12 +461,23 @@ class TestStartStopCaptureRequests:
     @pytest.mark.asyncio
     async def test_start_stop_capture(self, mocker):
         from qtm_mcp.tools.health import start_stop_capture
-        mock_post = mocker.patch("qtm_mcp.tools.health.sync_requests.post")
-        mock_post.return_value.raise_for_status.return_value = None
-        
+        # start_stop_capture now uses the shared async httpx client; patch
+        # its .post coroutine to return a successful response.
+        successful_response = mocker.Mock()
+        successful_response.raise_for_status = mocker.Mock(return_value=None)
+        post_calls: list[dict] = []
+
+        async def _post(*args, **kwargs):
+            post_calls.append({"args": args, "kwargs": kwargs})
+            return successful_response
+
+        mock_client = mocker.Mock()
+        mock_client.post = _post
+        mocker.patch("qtm_mcp.tools.health.get_shared_client", return_value=mock_client)
+
         res = await start_stop_capture("trial1", "start")
         assert res["status"] == "success"
-        mock_post.assert_called_once()
+        assert len(post_calls) == 1
 
 class TestSegmentGaitCyclesErrorMessage:
     @pytest.mark.asyncio

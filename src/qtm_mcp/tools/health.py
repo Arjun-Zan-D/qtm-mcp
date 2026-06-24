@@ -3,7 +3,8 @@ import hashlib
 import asyncio
 from pathlib import Path
 from typing import Dict, Any, List
-import requests as sync_requests
+
+import httpx
 
 from qtm_mcp.config import get_settings
 from qtm_mcp.utils import validate_patient_id, validate_patient_inputs, safe_patient_path, get_project_patient_dir, get_shared_client
@@ -89,13 +90,17 @@ async def start_stop_capture(trial_name: str, action: str) -> dict:
     if action not in ["start", "stop"]:
         raise ValueError("Action must be 'start' or 'stop'.")
         
-    try:
-        def _do_capture():
-            endpoint = f"{settings.qtm_rest_url}/api/capture/{action}"
-            payload = {"name": trial_name} if action == "start" else {}
-            return sync_requests.post(endpoint, json=payload, timeout=5.0)
+    endpoint = f"{settings.qtm_rest_url}/api/capture/{action}"
+    payload = {"name": trial_name} if action == "start" else {}
 
-        resp = await asyncio.to_thread(_do_capture)
+    try:
+        # Use the shared async httpx client (with circuit breaker) instead of
+        # the blocking 'requests' library wrapped in asyncio.to_thread. That
+        # avoids burning an executor thread per call and keeps capture
+        # control on the same connection pool / breaker as every other QTM
+        # REST request.
+        client = get_shared_client()
+        resp = await client.post(endpoint, json=payload, timeout=5.0)
         resp.raise_for_status()
         return {"status": "success", "action": action, "trial": trial_name}
     except Exception as e:

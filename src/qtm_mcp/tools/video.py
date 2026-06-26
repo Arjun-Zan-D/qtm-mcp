@@ -13,10 +13,11 @@
 # limitations under the License.
 
 import os
-import json
 import base64
 import logging
 import asyncio
+import hashlib
+from pathlib import Path
 
 from qtm_mcp.utils import get_project_patient_dir, validate_patient_inputs, safe_patient_path
 
@@ -24,7 +25,7 @@ logger = logging.getLogger("Universal_QTM_Server.video")
 
 # Maximum number of keyframes an agent may request in a single call.
 # Prevents runaway OpenCV decoding from blocking the event loop for minutes.
-MAX_KEYFRAMES = 30
+MAX_KEYFRAMES = 10
 
 try:
     import cv2
@@ -35,7 +36,7 @@ except ImportError:
     OPENCV_AVAILABLE = False
     logger.warning("OpenCV ('cv2') or NumPy is not installed. Video keyframe tools will use basic text/placeholder base64 fallbacks.")
 
-def _sync_extract_keyframes(video_path: str, num_frames: int) -> list[dict]:
+def _sync_extract_keyframes(patient_dir: Path, video_path: str, num_frames: int) -> list[dict]:
     """Synchronous CPU-bound OpenCV extraction."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -50,19 +51,23 @@ def _sync_extract_keyframes(video_path: str, num_frames: int) -> list[dict]:
     indices = [0] if num_frames == 1 else [int(i * (total_video_frames - 1) / (num_frames - 1)) for i in range(num_frames)]
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     
+    output_dir = patient_dir / ".keyframes"
+    output_dir.mkdir(exist_ok=True)
+    FRAME_QUALITY = 60
+    
     for target_frame in indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
         success, frame = cap.read()
         if not success:
             continue
         
-        _, buffer = cv2.imencode('.jpg', frame)
-        base64_str = base64.b64encode(buffer).decode('utf-8')
+        frame_path = output_dir / f"frame_{target_frame:06d}.jpg"
+        cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_JPEG_QUALITY, FRAME_QUALITY])
         
         extracted_images.append({
             "frame_index": target_frame,
             "timestamp_ms": round((target_frame / fps) * 1000, 1),
-            "image_base64": f"data:image/jpeg;base64,{base64_str}"
+            "image_path": frame_path.as_posix()
         })
         
     cap.release()
@@ -76,7 +81,7 @@ async def extract_video_keyframes(patient_id: str, session_date: str, num_frames
     try:
         validate_patient_inputs(patient_id, session_date)
         patient_base = await get_project_patient_dir()
-        patient_dir = safe_patient_path(patient_base, patient_id, session_date)
+        patient_dir = await safe_patient_path(patient_base, patient_id, session_date)
     except ValueError as e:
         raise ValueError(f"Input Validation Error: {e}")
 
@@ -85,9 +90,9 @@ async def extract_video_keyframes(patient_id: str, session_date: str, num_frames
     def _find_video(directory):
         if not directory.exists():
             return None
-        for file in directory.iterdir():
-            if file.suffix.lower() in (".avi", ".mp4", ".mov"):
-                return str(file).replace("\\", "/")
+        matches = sorted(directory.glob("*.avi")) + sorted(directory.glob("*.mp4")) + sorted(directory.glob("*.mov"))
+        if matches:
+            return str(matches[0]).replace("\\", "/")
         return None
         
     video_path = await asyncio.to_thread(_find_video, patient_dir)
@@ -102,10 +107,11 @@ async def extract_video_keyframes(patient_id: str, session_date: str, num_frames
             f"Expected a video file (.avi, .mp4, .mov) in this directory."
         )
 
+    hashed_id = hashlib.sha256(patient_id.encode()).hexdigest()[:12]
     try:
-        logger.info(f"Extracting keyframes from video: {video_path}")
+        logger.info(f"Extracting keyframes for Patient {hashed_id} from video: {video_path}")
         # Offload blocking OpenCV work to a background thread
-        extracted_images = await asyncio.to_thread(_sync_extract_keyframes, video_path, num_frames)
+        extracted_images = await asyncio.to_thread(_sync_extract_keyframes, patient_dir, video_path, num_frames)
         
         return {
             "patient_id": patient_id,

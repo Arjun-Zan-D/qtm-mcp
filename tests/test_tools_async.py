@@ -30,7 +30,7 @@ import asyncio
 from pathlib import Path
 
 from qtm_mcp.utils import validate_patient_inputs
-from qtm_mcp.tools.realtime import fetch_qtm_data
+from qtm_mcp.tools.realtime import stream_3d_markers
 from qtm_mcp.tools.pipeline import trigger_processing_pipeline, fetch_clinical_metrics
 from qtm_mcp.tools.video import extract_video_keyframes, MAX_KEYFRAMES
 from qtm_mcp.tools.file_ops import load_patient_session
@@ -79,14 +79,26 @@ class TestInputValidation:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# fetch_qtm_data
+# stream_3d_markers
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestFetchQtmData:
+class TestStreamTools:
     @pytest.mark.asyncio
-    async def test_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            await fetch_qtm_data(["3d"], 2)
+    async def test_returns_error_or_raises(self, mocker):
+        # We must initialize the connection manager since tools use it
+        from qtm_mcp.config import get_settings
+        from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
+        
+        manager = QTMConnectionManager(get_settings())
+        set_connection_manager(manager)
+        
+        mocker.patch("qtm_mcp.connection.QTM_RT_AVAILABLE", False)
+        
+        result = await stream_3d_markers(None, 2)
+        assert result["status"] == "error"
+        assert result["code"] == "RT_CONNECTION_FAILED"
+        
+        set_connection_manager(None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -171,12 +183,23 @@ class TestLoadPatientSession:
         (patient_dir / "test.qtm").touch()
         mocker.patch("qtm_mcp.tools.file_ops.safe_patient_path", return_value=patient_dir)
         
-        mocker.patch(
-            "qtm_mcp.tools.file_ops.httpx.AsyncClient",
-            side_effect=httpx.ConnectError("Connection refused"),
-        )
+        from qtm_mcp.config import get_settings
+        from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
+        
+        manager = QTMConnectionManager(get_settings())
+        set_connection_manager(manager)
+
+        # Mock the rest client
+        mock_client = mocker.AsyncMock()
+        mock_client.post.side_effect = httpx.ConnectError("Connection refused")
+        
+        # Patch the get_rest_client to return our mock
+        mocker.patch("qtm_mcp.connection.QTMConnectionManager.get_rest_client", return_value=mock_client)
+        
         with pytest.raises(ConnectionError):
             await load_patient_session(VALID_PATIENT, VALID_DATE)
+            
+        set_connection_manager(None)
 
     @pytest.mark.asyncio
     async def test_invalid_patient_id_raises(self):

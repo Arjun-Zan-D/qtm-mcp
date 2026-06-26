@@ -20,9 +20,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Configuration settings for the QTM MCP server, loaded dynamically from environment variables."""
 
-    # QTM REST API configuration
-    qtm_rest_port: int = 7979
+    # QTM REST API configuration (General)
+    qtm_rest_port: int = 22222
     qtm_rest_host: str = "localhost"
+
+    # QTM Scripting API configuration
+    qtm_scripting_port: int = 7979
+    qtm_scripting_host: str = "localhost"
 
     # QTM RT (Real-Time) protocol configuration
     qtm_rt_port: int = 22223
@@ -30,6 +34,7 @@ class Settings(BaseSettings):
 
     # Path configuration for patient biomechanics trials
     # Override these via environment variables or a .env file for your lab.
+    qtm_project_dir: str | None = None
     projects_root: str = "~/QTM_Projects"
     default_project: str = "My_Gait_Lab"
 
@@ -37,6 +42,16 @@ class Settings(BaseSettings):
     # Override via MATLAB_SCRIPTS_PATH and OPENSIM_CONFIG_ROOT env vars.
     matlab_scripts_path: str = "~/QTM_Projects/My_Gait_Lab/Matlab_Scripts"
     opensim_config_root: str = "~/QTM_Projects/My_Gait_Lab/OpenSim"
+
+    # Allowlist for EHR endpoints
+    fhir_allowed_endpoints: str = ""
+
+    @property
+    def allowed_fhir_endpoints(self) -> list[str]:
+        """Parse comma-separated FHIR endpoint allowlist."""
+        if not self.fhir_allowed_endpoints:
+            return []
+        return [u.strip() for u in self.fhir_allowed_endpoints.split(",") if u.strip()]
 
     # Enable reading from .env files
     model_config = SettingsConfigDict(
@@ -50,6 +65,11 @@ class Settings(BaseSettings):
         """Returns the fully qualified REST API endpoint URL."""
         return f"http://{self.qtm_rest_host}:{self.qtm_rest_port}"
 
+    @property
+    def qtm_scripting_url(self) -> str:
+        """Returns the fully qualified Scripting API endpoint URL."""
+        return f"http://{self.qtm_scripting_host}:{self.qtm_scripting_port}"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -59,3 +79,8 @@ def get_settings() -> Settings:
     and guarantee a single shared instance across the application.
     """
     return Settings()
+
+def reload_settings() -> Settings:
+    """Force-reload settings from environment. Call after .env changes."""
+    get_settings.cache_clear()
+    return get_settings()

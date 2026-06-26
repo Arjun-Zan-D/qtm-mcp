@@ -13,6 +13,39 @@ A professional, modular Model Context Protocol (MCP) server that acts as a bridg
 
 ---
 
+## Configuration
+
+Configure the server via environment variables or a `.env` file in the project root. See `.env.example` for a full list of supported variables.
+
+### Key Environment Variables
+
+*   **`QTM_REST_HOST` / `QTM_REST_PORT`**: Endpoint for the QTM REST API (default: `localhost:22222`).
+*   **`QTM_SCRIPTING_HOST` / `QTM_SCRIPTING_PORT`**: Endpoint for the QTM Scripting API (default: `localhost:7979`).
+*   **`QTM_RT_HOST` / `QTM_RT_PORT`**: Endpoint for the QTM RT stream (default: `127.0.0.1:22223`).
+*   **`QTM_PROJECT_DIR`**: Fallback directory for patient data if dynamic resolution fails.
+*   **`FHIR_ALLOWED_ENDPOINTS`**: Comma-separated list of approved EHR endpoints for clinical output.
+
+### Optional Dependencies
+
+Install specific capability groups or all of them:
+
+```bash
+pip install qtm-mcp[vision]       # For video processing
+pip install qtm-mcp[clinical]     # For PDF and FHIR exports
+pip install qtm-mcp[biomechanics] # For biomechanical analytics
+pip install qtm-mcp[all]          # Install all optional dependencies
+```
+
+### Session Data Structure
+
+The server expects patient data files within the active QTM project directory under `Patient_Data/{patient_id}/{session_date}/`. Files should include:
+- `{patient_id}_clinical_report.json`
+- `gait_cycles.json`
+- `marker_trajectories.json`
+- OpenSim configurations under `OpenSim/Setup_IK_{patient_id}.xml`
+
+---
+
 ## Directory Architecture
 
 ```
@@ -23,16 +56,20 @@ qtm-mcp/
 ├── src/
 │   └── qtm_mcp/
 │       ├── __init__.py        # Package exports
-│       ├── base.py            # Shared FastMCP instantiation (prevents circular imports)
 │       ├── server.py          # Main CLI runner and tool registry
 │       ├── config.py          # Pydantic-settings config schema
 │       ├── utils.py           # Directory resolution utilities
 │       └── tools/             # Split tool logic
 │           ├── __init__.py
-│           ├── file_ops.py    # Session loading tools
-│           ├── realtime.py    # qtm-rt real-time streams
-│           ├── video.py       # OpenCV keyframe extraction & stick-figure drawing
-│           └── pipeline.py    # Subprocess execution & clinical reports
+│           ├── file_ops.py        # Session loading tools
+│           ├── realtime.py        # qtm-rt real-time streams
+│           ├── video.py           # OpenCV keyframe extraction
+│           ├── pipeline.py        # Subprocess execution & clinical reports
+│           ├── health.py          # Hardware status and calibration
+│           ├── telemetry.py       # Analog and EMG signal processing
+│           ├── biomechanics.py    # Kinematics and anthropometrics
+│           ├── analytics.py       # ML/AI data segmentation and normative stats
+│           └── clinical_output.py # EHR pushes, PDFs, and clinical notes
 ```
 
 ---
@@ -126,9 +163,9 @@ async with stdio_client(server_params) as (read, write):
 
 If you want to add new tools to the biomechanical workflow:
 1. Create a Python module inside the `src/qtm_mcp/tools/` folder.
-2. Import the shared `mcp` instance: `from qtm_mcp.base import mcp`.
-3. Declare tools using `@mcp.tool()`.
-4. Import your new module inside `src/qtm_mcp/server.py` so the decorator registers on startup.
+2. Define your async tool functions and provide type hints.
+3. Import your new module inside `src/qtm_mcp/server.py`.
+4. Register the tool explicitly in `create_server()` using `server.tool()(with_timeout(X)(my_tool_function))`.
 
 ---
 

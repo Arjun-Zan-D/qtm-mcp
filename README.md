@@ -1,5 +1,8 @@
 # Universal QTM MCP Server
 
+[![Python Tests](https://github.com/Arjun-Zan-D/qtm-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Arjun-Zan-D/qtm-mcp/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A professional, modular Model Context Protocol (MCP) server that acts as a bridge between AI assistants (such as Claude 3.5 Sonnet) and **Qualisys Track Manager (QTM)** software. This integration enables AI agents to serve as clinical decision support tools in motion analysis labs by loading trials, streaming 3D/6D kinematic and analog/EMG data, automating data pipelines (MATLAB, OpenSim), and extracting video keyframes for postural inspection.
 
 ## Features

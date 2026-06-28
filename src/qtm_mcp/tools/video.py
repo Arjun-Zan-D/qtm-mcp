@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Xavier Gait Lab Contributors
+# Copyright (c) 2026 Arjun Singh Shishodia
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import os
-import base64
+
 import logging
 import asyncio
 import hashlib
@@ -21,7 +21,7 @@ from pathlib import Path
 
 from qtm_mcp.utils import get_project_patient_dir, validate_patient_inputs, safe_patient_path
 
-logger = logging.getLogger("Universal_QTM_Server.video")
+logger = logging.getLogger("qtm_mcp.video")
 
 # Maximum number of keyframes an agent may request in a single call.
 # Prevents runaway OpenCV decoding from blocking the event loop for minutes.

@@ -1,3 +1,17 @@
+# Copyright (c) 2026 Arjun Singh Shishodia
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import asyncio
 import hashlib
 import json
@@ -8,7 +22,7 @@ from typing import Dict, Any, List
 from qtm_mcp.config import get_settings
 from qtm_mcp.utils import validate_patient_inputs, safe_patient_path, get_project_patient_dir, confined_file
 
-logger = logging.getLogger("Universal_QTM_Server.telemetry")
+logger = logging.getLogger("qtm_mcp.telemetry")
 
 async def get_emg_signals(
     patient_id: str, session_date: str, trial: str | None = None
@@ -166,8 +180,8 @@ async def fill_trajectory_gaps(patient_id: str, session_date: str, max_gap_frame
 async def filter_signals(patient_id: str, session_date: str, signal_type: str, cutoff_freq: float) -> dict:
     """Applies low-pass filtering to marker trajectories or analog signals.
     
-    Use this tool to smooth noisy kinematic or kinetic data (e.g., using a zero-lag
-    Butterworth filter). Typical cutoff_freq is 6Hz for kinematics and 15-50Hz for kinetics.
+    Use this tool to smooth noisy kinematic or kinetic data (e.g., using a moving-average
+    filter).
     """
     settings = get_settings()
     pid_hash = hashlib.sha256(patient_id.encode()).hexdigest()[:12]

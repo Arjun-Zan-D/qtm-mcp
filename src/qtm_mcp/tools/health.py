@@ -1,3 +1,17 @@
+# Copyright (c) 2026 Arjun Singh Shishodia
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import logging
 import hashlib
 import asyncio
@@ -9,7 +23,7 @@ import httpx
 from qtm_mcp.config import get_settings
 from qtm_mcp.utils import validate_patient_id, validate_patient_inputs, safe_patient_path, get_project_patient_dir, get_shared_client
 
-logger = logging.getLogger("Universal_QTM_Server.health")
+logger = logging.getLogger("qtm_mcp.health")
 
 async def health_check() -> dict:
     """Pings the QTM REST API, checks RT port status, and verifies MATLAB/OpenSim paths.

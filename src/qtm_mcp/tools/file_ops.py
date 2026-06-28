@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Xavier Gait Lab Contributors
+# Copyright (c) 2026 Arjun Singh Shishodia
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
+
 import logging
 import asyncio
 import hashlib
@@ -22,7 +22,7 @@ import httpx
 from qtm_mcp.config import get_settings
 from qtm_mcp.utils import get_project_patient_dir, validate_patient_inputs, safe_patient_path, get_shared_client
 
-logger = logging.getLogger("Universal_QTM_Server.file_ops")
+logger = logging.getLogger("qtm_mcp.file_ops")
 
 
 async def load_patient_session(patient_id: str, session_date: str) -> dict:

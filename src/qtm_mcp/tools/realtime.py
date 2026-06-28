@@ -1,10 +1,24 @@
+# Copyright (c) 2026 Arjun Singh Shishodia
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import logging
 from typing import Annotated, Literal, Optional
 
 from pydantic import Field
 from qtm_mcp.connection import get_connection_manager
 
-logger = logging.getLogger("Universal_QTM_Server.realtime")
+logger = logging.getLogger("qtm_mcp.realtime")
 
 MAX_FRAMES = 120
 FrameCount = Annotated[int, Field(ge=1, le=MAX_FRAMES)]

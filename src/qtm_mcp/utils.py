@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Xavier Gait Lab Contributors
+# Copyright (c) 2026 Arjun Singh Shishodia
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ import httpx
 
 from qtm_mcp.config import get_settings
 
-logger = logging.getLogger("Universal_QTM_Server.utils")
+logger = logging.getLogger("qtm_mcp.utils")
 
 # ── Precompiled validation patterns ──────────────────────────────────────────
 _PATIENT_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -86,8 +86,6 @@ class CircuitBreakerClient:
             self._record_failure()
             raise e
 
-_shared_client = None  # Deprecated local reference, kept for backward compatibility if needed
-
 def get_shared_client() -> CircuitBreakerClient:
     """Returns the General REST client."""
     from qtm_mcp.connection import get_connection_manager
@@ -97,10 +95,6 @@ def get_scripting_client() -> CircuitBreakerClient:
     """Returns the Scripting API REST client."""
     from qtm_mcp.connection import get_connection_manager
     return get_connection_manager().get_scripting_client()
-
-def set_shared_client(client: httpx.AsyncClient | None):
-    # Deprecated, handled by QTMConnectionManager now
-    pass
 
 async def confined_file(root: Path, candidate: Path, suffixes: set[str]) -> Path:
     """Safely resolves a file path and ensures it remains within the trusted root."""

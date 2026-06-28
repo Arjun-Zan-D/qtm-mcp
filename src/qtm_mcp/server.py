@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Xavier Gait Lab Contributors
+# Copyright (c) 2026 Arjun Singh Shishodia
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 from qtm_mcp.config import get_settings
-from qtm_mcp.utils import set_shared_client
+
 from qtm_mcp.connection import QTMConnectionManager, set_connection_manager
 
 # ── Logging guardrail ────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ logging.basicConfig(
     force=True,  # Override any previously installed root handlers
 )
 
-logger = logging.getLogger("Universal_QTM_Server")
+logger = logging.getLogger("qtm_mcp")
 
 
 # ── Lifespan context manager ─────────────────────────────────────────────────
@@ -95,14 +95,14 @@ def with_timeout(seconds: float = 300.0):
 # ── Server factory ───────────────────────────────────────────────────────────
 
 def create_server() -> FastMCP:
-    """Instantiate and fully register the Universal QTM FastMCP server.
+    """Instantiate and fully register the qtm-mcp FastMCP server.
 
     Registration order follows the spec:
       1. Resources  (qtm:// URIs for read-only data access)
       2. Tools      (side-effect actions)
       3. Prompts    (guided LLM workflows)
     """
-    mcp = FastMCP("Universal_QTM_Server", lifespan=server_lifespan)
+    mcp = FastMCP("qtm-mcp", lifespan=server_lifespan)
 
     # ── Import tool modules ──────────────────────────────────────────────────
     try:
@@ -232,7 +232,7 @@ def create_server() -> FastMCP:
         metric = parts[2]
         return await with_timeout(10.0)(analytics.lookup_normative_data)(age, sex, metric)
 
-    logger.info("Registered 7 MCP Resources under the qtm:// URI scheme.")
+    logger.info("Registered 10 MCP Resources under the qtm:// URI scheme.")
 
     # ════════════════════════════════════════════════════════════════════════
     #  TOOLS  —  actions, mutations, processing triggers, capture control
@@ -292,7 +292,7 @@ def create_server() -> FastMCP:
     mcp.tool()(with_timeout(60.0)(clinical_output.push_to_ehr))
     mcp.tool()(with_timeout(30.0)(clinical_output.update_clinical_notes))
 
-    logger.info("Registered 18 MCP Tools.")
+    logger.info("Registered 30 MCP Tools.")
 
     # ════════════════════════════════════════════════════════════════════════
     #  PROMPTS  —  guided LLM workflows for clinical review and diagnostics
@@ -434,7 +434,7 @@ def create_server() -> FastMCP:
 
     logger.info("Registered 3 MCP Prompts.")
     logger.info(
-        "Universal_QTM_Server ready: 7 Resources | 17 Tools | 3 Prompts"
+        "qtm-mcp server ready: 10 Resources | 30 Tools | 3 Prompts"
     )
     return mcp
 
@@ -443,7 +443,7 @@ def create_server() -> FastMCP:
 
 def main() -> None:
     """CLI entry point — registered as `qtm-mcp` in pyproject.toml scripts."""
-    logger.info("Launching Universal QTM MCP Server over stdio...")
+    logger.info("Launching qtm-mcp over stdio...")
     server = create_server()
     server.run()
 

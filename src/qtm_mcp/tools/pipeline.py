@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Xavier Gait Lab Contributors
+# Copyright (c) 2026 Arjun Singh Shishodia
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ from qtm_mcp.utils import (
     validate_patient_inputs,
 )
 
-logger = logging.getLogger("Universal_QTM_Server.pipeline")
+logger = logging.getLogger("qtm_mcp.pipeline")
 
 # NOTE: An auto-generated IK template used to live here. It wrote a
 # placeholder OpenSim XML pointing at non-existent files

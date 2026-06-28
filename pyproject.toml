@@ -5,15 +5,37 @@ build-backend = "hatchling.build"
 [project]
 name = "qtm-mcp"
 version = "0.1.0"
-description = "A Universal Model Context Protocol (MCP) server for Qualisys Track Manager (QTM)"
+description = "AI-powered Model Context Protocol (MCP) server for Qualisys Track Manager (QTM)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [
-    { name = "Xavier Gait Lab Contributors" }
+    { name = "Arjun Singh Shishodia", email = "arjunsinghshishodia03@gmail.com" }
+]
+maintainers = [
+    { name = "Arjun Singh Shishodia", email = "arjunsinghshishodia03@gmail.com" }
+]
+urls = { Homepage = "https://github.com/Arjun-Zan-D/qtm-mcp", Repository = "https://github.com/Arjun-Zan-D/qtm-mcp", Issues = "https://github.com/Arjun-Zan-D/qtm-mcp/issues" }
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "qualisys",
+    "motion-capture",
+    "biomechanics",
+    "gait-analysis",
+    "opensim",
+    "ai",
+    "llm",
 ]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
 ]
@@ -22,7 +44,6 @@ dependencies = [
     "httpx>=0.28,<1",
     "pydantic-settings>=2.1.0",
     "qtm-rt>=3.0.2,<4",
-    "requests>=2.31.0",
     "c3d>=0.5.2",
 ]
 

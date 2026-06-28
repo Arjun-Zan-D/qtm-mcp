@@ -1,4 +1,4 @@
-# Contributing to Universal QTM MCP Server
+# Contributing to qtm-mcp
 
 Thank you for contributing! As an open-source clinical motion capture utility, maintaining high standards of code safety, documentation accuracy, and data fallback coverage is essential for reliability in clinical research settings.
 

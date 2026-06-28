@@ -1,6 +1,6 @@
 # Example Prompts
 
-This directory contains example prompts you can copy and paste into your AI assistant (e.g., Claude) once the **Universal QTM MCP Server** is connected. 
+This directory contains example prompts you can copy and paste into your AI assistant (e.g., Claude) once **qtm-mcp** is connected. 
 
 These examples demonstrate the real-world utility of the MCP across different domains: clinical analysis, biomechanical research, and video-based postural assessment.
 

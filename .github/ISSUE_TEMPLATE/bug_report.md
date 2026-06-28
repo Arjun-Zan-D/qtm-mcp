@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Create a report to help us improve the Universal QTM MCP Server
+about: Create a report to help us improve qtm-mcp
 title: ''
 labels: bug
 assignees: ''

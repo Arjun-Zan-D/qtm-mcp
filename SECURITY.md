@@ -10,7 +10,12 @@ Only the latest major version is currently receiving security updates.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within the Universal QTM MCP Server, please report it via the GitHub Security Advisory feature or email the lab maintainers directly. Do NOT open public issues for security exploits, especially those related to Protected Health Information (PHI) access.
+If you discover a security vulnerability within qtm-mcp, please report it via the GitHub Security Advisory feature or email the maintainer directly at arjunsinghshishodia03@gmail.com. Do NOT open public issues for security exploits, especially those related to Protected Health Information (PHI) access.
+
+### Severity Classification & Timelines
+- **Critical (e.g., PHI exposure, remote code execution):** We aim to respond within 48 hours and release a patch immediately.
+- **High (e.g., Denial of Service, path traversal in specific setups):** We aim to respond within 5 business days.
+- **Medium/Low:** We aim to respond within 5-10 business days and include fixes in the next minor release.
 
 ## Clinical Fail-Closed Policy
 

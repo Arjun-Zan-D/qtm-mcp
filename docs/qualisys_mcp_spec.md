@@ -46,6 +46,8 @@ Prompts give the LLM structured templates for interacting with QTM data. These n
 
 ## 4. Refactoring Plan & Next Steps
 
+> **Update (v0.1.0):** The refactoring plan has been fully implemented. Resources, Tools, and Prompts have been successfully separated and registered per the FastMCP specification. This section is kept for historical context.
+
 ### What is Missing
 1.  **Resource Declarations:** No `@server.resource()` definitions exist.
 2.  **Prompt Declarations:** No `@server.prompt()` definitions exist.

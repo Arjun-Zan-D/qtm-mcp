@@ -7,7 +7,7 @@
 > [!WARNING]
 > **CRITICAL LEGAL NOTICE FOR RESEARCHERS, CLINICIANS, AND INTEGRATION DEVELOPERS:**
 >
-> This software (**"Universal QTM MCP Server"**) is not cleared, approved, registered, or otherwise authorized by the United States Food and Drug Administration (FDA), European Medicines Agency (EMA), or any other regulatory body worldwide for use as a medical device, diagnostic tool, or clinical decision support software.
+> This software (**"qtm-mcp"**) is not cleared, approved, registered, or otherwise authorized by the United States Food and Drug Administration (FDA), European Medicines Agency (EMA), or any other regulatory body worldwide for use as a medical device, diagnostic tool, or clinical decision support software.
 
 ---
 
@@ -41,4 +41,4 @@ By running, compiling, or integrating this Software, you assume all liability an
 
 ---
 
-*For details on the warranty exclusions, please refer to the [LICENSE](file:///d:/QTM%20MCP/LICENSE) file.*
+*For details on the warranty exclusions, please refer to the [LICENSE.txt](LICENSE.txt) file.*
